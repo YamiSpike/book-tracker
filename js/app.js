@@ -52,6 +52,11 @@
     var vi = v.volumeInfo || {};
     var img = (vi.imageLinks && (vi.imageLinks.thumbnail || vi.imageLinks.smallThumbnail)) || '';
     if (img) img = img.replace(/^http:/, 'https:');
+    var isbn = '';
+    (vi.industryIdentifiers || []).forEach(function (x) {
+      if (x.type === 'ISBN_13') isbn = x.identifier;
+      else if (x.type === 'ISBN_10' && !isbn) isbn = x.identifier;
+    });
     return {
       id: v.id,
       title: vi.title || 'Ohne Titel',
@@ -62,6 +67,7 @@
       categories: vi.categories || [],
       desc: vi.description || '',
       lang: vi.language || '',
+      isbn: isbn,
       gRating: vi.averageRating || 0
     };
   }
@@ -82,7 +88,7 @@
     var olq = q.replace(/inauthor:/g, 'author:');
     var url = 'https://openlibrary.org/search.json?q=' + encodeURIComponent(olq)
       + '&limit=' + (maxResults || 20)
-      + '&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject,language,ratings_average';
+      + '&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject,language,ratings_average,isbn';
     return fetch(url).then(function (r) {
       if (!r.ok) throw new Error('Open Library nicht erreichbar (' + r.status + ')');
       return r.json();
@@ -99,19 +105,95 @@
           categories: (d.subject || []).slice(0, 4),
           desc: '',
           lang: (d.language || [])[0] || '',
+          isbn: (d.isbn || [])[0] || '',
           gRating: d.ratings_average ? Math.round(d.ratings_average * 10) / 10 : 0
         };
       }).filter(function (b) { return b.title; });
     });
   }
 
-  // Erst Google Books (bessere Beschreibungen), bei Fehler/Quota automatisch Open Library
+  // Deutsche Nationalbibliothek (SRU, MARC21-XML) — Pflichtexemplar: JEDES deutsche Buch.
+  // Kein Key, kein Kontingent, CORS offen. Cover über den offiziellen MVB-Cover-Dienst.
+  function dnbSearch(q, maxResults) {
+    var plain = q.replace(/(inauthor|subject|author):/g, '').replace(/"/g, '').trim();
+    if (!plain) return Promise.resolve([]);
+    var url = 'https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve'
+      + '&query=' + encodeURIComponent('WOE="' + plain + '"')
+      + '&recordSchema=MARC21-xml&maximumRecords=' + Math.min(maxResults || 15, 15);
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error('DNB nicht erreichbar (' + r.status + ')');
+      return r.text();
+    }).then(function (xml) {
+      var doc = new DOMParser().parseFromString(xml, 'application/xml');
+      var recs = doc.getElementsByTagNameNS('http://www.loc.gov/MARC21/slim', 'record');
+      var out = [];
+      function df(rec, tag, code) {
+        var fields = rec.querySelectorAll('datafield[tag="' + tag + '"]');
+        var vals = [];
+        for (var i = 0; i < fields.length; i++) {
+          var sf = fields[i].querySelectorAll('subfield[code="' + code + '"]');
+          for (var k = 0; k < sf.length; k++) vals.push(sf[k].textContent.trim());
+        }
+        return vals;
+      }
+      for (var i = 0; i < recs.length; i++) {
+        var rec = recs[i];
+        var title = (df(rec, '245', 'a')[0] || '').replace(/\s*[/:;]\s*$/, '');
+        if (!title) continue;
+        var sub = (df(rec, '245', 'b')[0] || '').replace(/\s*[/:;]\s*$/, '');
+        var ctrl = rec.querySelectorAll('controlfield[tag="001"]');
+        var id = 'dnb-' + ((ctrl[0] && ctrl[0].textContent.trim()) || (title + i));
+        var isbn = (df(rec, '020', 'a')[0] || '').replace(/[^0-9Xx]/g, '');
+        var year = ((df(rec, '264', 'c')[0] || df(rec, '260', 'c')[0] || '').match(/\d{4}/) || [''])[0];
+        var pages = parseInt(((df(rec, '300', 'a')[0] || '').match(/\d+/) || ['0'])[0], 10) || 0;
+        var authors = df(rec, '100', 'a').concat(df(rec, '700', 'a')).slice(0, 3)
+          .map(function (a) { return a.replace(/,\s*$/, '').split(',').reverse().join(' ').trim(); });
+        out.push({
+          id: id,
+          title: sub ? (title + ' — ' + sub) : title,
+          authors: authors,
+          cover: isbn ? ('https://portal.dnb.de/opac/mvb/cover?isbn=' + isbn) : '',
+          year: year,
+          pages: pages,
+          categories: df(rec, '650', 'a').slice(0, 3),
+          desc: '',
+          lang: 'de',
+          isbn: isbn,
+          gRating: 0
+        });
+      }
+      return out;
+    });
+  }
+
+  // Alle Quellen PARALLEL abfragen und zusammenführen — beste Trefferquote,
+  // und der Ausfall einer Quelle (z.B. Google-Tageskontingent) fällt nicht auf.
+  // Duplikate: erster Treffer gewinnt, spätere füllen fehlende Felder (Cover/ISBN/Beschreibung) auf.
   function searchBooks(q, maxResults) {
-    return gbSearch(q, maxResults).then(function (items) {
-      if (items.length) return items;
-      return olSearch(q, maxResults);
-    }).catch(function () {
-      return olSearch(q, maxResults);
+    var n = maxResults || 20;
+    return Promise.allSettled([gbSearch(q, n), dnbSearch(q, 15), olSearch(q, n)]).then(function (rs) {
+      var lists = rs.map(function (r) { return r.status === 'fulfilled' ? r.value : []; });
+      var map = Object.create(null), order = [];
+      lists.forEach(function (list) {
+        list.forEach(function (b) {
+          var k = bookKey(b);
+          var prev = map[k];
+          if (!prev) { map[k] = b; order.push(k); return; }
+          // Lücken auffüllen statt Duplikat anzeigen
+          if (!prev.cover && b.cover) prev.cover = b.cover;
+          if (!prev.desc && b.desc) prev.desc = b.desc;
+          if (!prev.isbn && b.isbn) prev.isbn = b.isbn;
+          if (!prev.pages && b.pages) prev.pages = b.pages;
+          if (!prev.year && b.year) prev.year = b.year;
+          if ((!prev.categories || !prev.categories.length) && b.categories && b.categories.length) prev.categories = b.categories;
+          if (!prev.olKey && b.olKey) prev.olKey = b.olKey;
+        });
+      });
+      var merged = order.map(function (k) { return map[k]; });
+      // Einträge mit Cover zuerst (bessere Trefferliste), Reihenfolge sonst stabil
+      merged.sort(function (a, b) { return (b.cover ? 1 : 0) - (a.cover ? 1 : 0); });
+      if (!merged.length) throw new Error('Keine Quelle erreichbar. Bitte später erneut versuchen.');
+      return merged.slice(0, n + 10);
     });
   }
 
@@ -410,6 +492,18 @@
       : '<div class="empty"><div class="big">📊</div><p>Noch keine Daten — füge zuerst Bücher hinzu.</p></div>';
   }
 
+  // Shop-Suchlinks (Amazon/Thalia haben keine öffentliche API — Suche per ISBN/Titel im Shop)
+  function shopLinksHtml(b) {
+    var q = b.isbn || (b.title + ' ' + (b.authors[0] || ''));
+    var enc = encodeURIComponent(q.trim());
+    return '<div class="shop-row">'
+      + '<span class="shop-lbl">Kaufen / ansehen:</span>'
+      + '<a class="shop-link amazon" href="https://www.amazon.de/s?k=' + enc + '&i=stripbooks" target="_blank" rel="noopener noreferrer">🛒 Amazon</a>'
+      + '<a class="shop-link thalia" href="https://www.thalia.de/suche?sq=' + enc + '" target="_blank" rel="noopener noreferrer">📖 Thalia</a>'
+      + (b.isbn ? '<span class="shop-isbn">ISBN ' + esc(b.isbn) + '</span>' : '')
+      + '</div>';
+  }
+
   // ───── Detail-Modal ─────
   var modalBook = null;
   function openDetail(b) {
@@ -445,6 +539,7 @@
       + (own ? '<div class="rate-row" aria-label="Bewertung">' + stars + '</div>'
         + '<div style="padding:8px 18px 0"><textarea class="note-area" id="noteArea" placeholder="Deine Notizen zu diesem Buch…">' + esc(own.note || '') + '</textarea></div>'
         : '')
+      + shopLinksHtml(b)
       + '<div class="detail-body">'
       + (b.desc ? '<h3>Beschreibung</h3><div class="desc">' + esc(b.desc.replace(/<[^>]+>/g, ' ')).slice(0, 2200) + '</div>' : '<p class="muted" style="margin-top:14px">Keine Beschreibung verfügbar.</p>')
       + '</div>';
@@ -520,6 +615,49 @@
   }
   // Cloud hat Daten geändert → UI aktualisieren (statt Reload)
   window.BKCloudOnChange = function () { recoBuiltFor = ''; refreshAll(); toast('☁️ Von der Cloud aktualisiert'); };
+
+  // ───── Schnittstelle fürs Maskottchen (js/mascot.js) ─────
+  function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+  function getMascotMessage() {
+    var books = lib();
+    if (!books.length) {
+      return pick([
+        { text: 'Huhu, ich bin Fuku! 🦉 Füge unter „Entdecken" dein erstes Buch hinzu.' },
+        { text: 'Eine leere Bibliothek? Das ändern wir! Such mal nach deinem Lieblingsbuch. 📚' }
+      ]);
+    }
+    var pool = [];
+    var reading = books.filter(function (b) { return b.status === 'reading'; });
+    if (reading.length) {
+      var r = pick(reading);
+      pool.push({ text: 'Wie läuft es mit „' + r.title + '"? Schon weitergelesen? 📖', id: r.id, kind: 'lib' });
+    }
+    var want = books.filter(function (b) { return b.status === 'want'; });
+    if (want.length) {
+      var w = pick(want);
+      pool.push({ text: 'Auf deiner Wunschliste wartet noch „' + w.title + '". Heute anfangen? ✨', id: w.id, kind: 'lib' });
+    }
+    if (lastReco.length) {
+      var rec = pick(lastReco.slice(0, 8));
+      pool.push({ text: 'Tipp für dich: „' + rec.book.title + '"' + (rec.book.authors[0] ? ' von ' + rec.book.authors[0] : '') + '. ' + rec.reason + '!', id: rec.book.id, kind: 'reco' });
+    }
+    var read = books.filter(function (b) { return b.status === 'read'; });
+    if (read.length) {
+      var pages = read.reduce(function (s, b) { return s + (b.pages || 0); }, 0);
+      pool.push({ text: 'Schon ' + read.length + ' Bücher und ' + pages.toLocaleString('de-DE') + ' Seiten gelesen — stark! 🎉' });
+      var best = read.filter(function (b) { return (b.rating || 0) >= 4; });
+      if (best.length) pool.push({ text: '„' + pick(best).title + '" fandst du klasse — unter „Für dich" gibt es Ähnliches! ⭐' });
+    }
+    pool.push({ text: pick(['Ein Kapitel am Tag hält den Bücherwurm wach! 🐛', 'Wusstest du? Lesen vor dem Schlafen verbessert den Schlaf. 😴', 'Schau mal in die Statistik — deine Lese-Bilanz wächst! 📊']) });
+    return pick(pool);
+  }
+  function openById(id, kind) {
+    var b = null;
+    if (kind === 'reco') { var r = lastReco.find(function (x) { return x.book.id === id; }); b = r && r.book; }
+    if (!b) b = findInLib(id);
+    if (b) openDetail(findInLib(id) || b);
+  }
+  window.HonApp = { getMascotMessage: getMascotMessage, openById: openById };
 
   // ───── Export / Import ─────
   function exportJson() {
@@ -616,6 +754,12 @@
       if (e.target.files && e.target.files[0]) importJson(e.target.files[0]);
       e.target.value = '';
     });
+
+    // Topbar-Schatten beim Scrollen
+    var topbar = document.querySelector('.topbar');
+    window.addEventListener('scroll', function () {
+      topbar.classList.toggle('scrolled', window.scrollY > 8);
+    }, { passive: true });
 
     // Service Worker
     if ('serviceWorker' in navigator && location.protocol === 'https:') {

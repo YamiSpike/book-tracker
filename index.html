@@ -89,7 +89,7 @@
 <!-- ─── Entdecken / Suche ─── -->
 <section id="view-suche" class="view">
   <h2>Bücher entdecken</h2>
-  <p class="section-sub">Suche nach Titel, Autor·in oder ISBN — Daten von Google Books</p>
+  <p class="section-sub">Titel, Autor·in oder ISBN — 3 Quellen parallel: Google Books · Open Library · Deutsche Nationalbibliothek</p>
   <div class="search-row">
     <input id="searchInput" type="search" placeholder="z. B. „Der Herr der Ringe" oder „Haruki Murakami"…" autocomplete="off" enterkeyhint="search" />
     <button class="btn-primary" id="searchBtn">Suchen</button>
@@ -205,7 +205,9 @@
       <summary>✨ Alle Funktionen der App anzeigen</summary>
       <div style="padding:6px 0 2px;">
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Entdecken &amp; Suchen</p>
-        <p class="muted" style="margin:0;">Live-Suche über Google Books (Titel, Autor·in, ISBN) · Genre-Schnellfilter · Cover, Beschreibung, Seitenzahl &amp; Erscheinungsjahr in der Detail-Ansicht</p>
+        <p class="muted" style="margin:0;">3 Quellen parallel: Google Books · Open Library · Deutsche Nationalbibliothek (alle deutschen Bücher) · Automatischer Ausfall-Schutz &amp; Duplikat-Zusammenführung · Genre-Schnellfilter · Cover, Beschreibung, ISBN, Seitenzahl &amp; Erscheinungsjahr · Amazon- &amp; Thalia-Links in der Detail-Ansicht</p>
+        <p class="muted" style="font-weight:700;margin:8px 0 2px;">Maskottchen Fuku 🦉</p>
+        <p class="muted" style="margin:0;">Bücher-Eule mit Lese-Tipps, Erinnerungen an angefangene Bücher &amp; persönlichen Empfehlungen · antippen für Tipp · ausblendbar</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Sammeln &amp; Verwalten</p>
         <p class="muted" style="margin:0;">Lesestatus (Gelesen / Lese gerade / Will lesen) · 5-Sterne-Bewertung · Persönliche Notizen · Genre- &amp; Status-Filter · Sortierung · Entfernen mit Sync-fähigen Löschungen</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Empfehlungen</p>
@@ -215,10 +217,10 @@
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Daten &amp; Sicherheit</p>
         <p class="muted" style="margin:0;">Cloud-Sync (E-Mail-Konto, geteilt mit Nihongo- &amp; Japan-App) · Multi-Device-Merge ohne Datenverlust · Passwort-Wiederherstellung per Code oder E-Mail · Offline-fähig (PWA) · Update-Banner statt Auto-Reload · JSON-Export/-Import</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Design &amp; Bedienung</p>
-        <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata)</p>
+        <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Kerzenlicht-Glühen im Hero · Gestaffelte Karten-Animationen · Cover-Zoom &amp; Glanz-Effekt · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata)</p>
       </div>
     </details>
-    <p class="muted" style="font-size:12px;margin-top:8px;">Version v1</p>
+    <p class="muted" style="font-size:12px;margin-top:8px;">Version v2</p>
   </div>
 </section>
 
@@ -232,12 +234,13 @@
 <div id="toast" class="toast" hidden></div>
 
 <footer class="appfoot">
-  <p>Buchdaten: Google Books · Cover © jeweilige Verlage</p>
-  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v1</p>
+  <p>Buchdaten: Google Books · Open Library · Deutsche Nationalbibliothek — Cover © jeweilige Verlage</p>
+  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v2</p>
 </footer>
 
 <script src="js/update.js"></script>
 <script src="js/cloud.js"></script>
 <script src="js/app.js"></script>
+<script src="js/mascot.js"></script>
 </body>
 </html>

@@ -239,7 +239,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 /* ───── Suche ───── */
 .search-row { display: flex; gap: 8px; margin-bottom: 6px; }
 .search-row input {
-  flex: 1; background: var(--bg-soft); border: 1px solid var(--border); color: var(--text);
+  flex: 1; min-width: 0; background: var(--bg-soft); border: 1px solid var(--border); color: var(--text);
   padding: 12px 14px; border-radius: 12px; font-size: 14px; outline: none;
   transition: border-color .15s, box-shadow .15s;
 }
@@ -397,6 +397,143 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 
 /* ───── Footer ───── */
 .appfoot { text-align: center; padding: 18px 14px 26px; color: var(--muted); font-size: 11px; }
+
+/* ───── Shop-Links (Amazon/Thalia) ───── */
+.shop-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 10px 18px 0; padding: 10px 12px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+}
+.shop-lbl { font-size: 11px; color: var(--muted); font-weight: 700; letter-spacing: .3px; }
+.shop-link {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 7px 13px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  border: 1px solid var(--border); color: var(--text); text-decoration: none;
+  transition: transform .12s, border-color .15s, background .15s, box-shadow .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.shop-link:hover { text-decoration: none; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+.shop-link:active { transform: scale(.96); }
+.shop-link.amazon:hover { border-color: #f5a623; color: #f5a623; }
+.shop-link.thalia:hover { border-color: #10a8b4; color: #10a8b4; }
+.shop-isbn { font-size: 10px; color: var(--muted); margin-left: auto; font-family: monospace; }
+
+/* ───── Moderne Effekte ───── */
+/* Karten gleiten gestaffelt herein */
+.grid .card { animation: cardIn .38s cubic-bezier(.22,1,.36,1) backwards; }
+.grid .card:nth-child(1) { animation-delay: .02s; } .grid .card:nth-child(2) { animation-delay: .06s; }
+.grid .card:nth-child(3) { animation-delay: .1s; }  .grid .card:nth-child(4) { animation-delay: .14s; }
+.grid .card:nth-child(5) { animation-delay: .18s; } .grid .card:nth-child(6) { animation-delay: .22s; }
+.grid .card:nth-child(7) { animation-delay: .26s; } .grid .card:nth-child(8) { animation-delay: .3s; }
+@keyframes cardIn { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+
+/* Cover zoomt sanft beim Hover, Karte bekommt Glanz-Streifen */
+.card { isolation: isolate; }
+.card .cover { transition: transform .45s cubic-bezier(.22,1,.36,1); }
+.card:hover .cover { transform: scale(1.05); }
+.card::after {
+  content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,.09) 46%, rgba(255,255,255,.16) 50%, rgba(255,255,255,.09) 54%, transparent 70%);
+  transform: translateX(-120%); transition: transform .7s cubic-bezier(.22,1,.36,1);
+}
+.card:hover::after { transform: translateX(120%); }
+.card { overflow: hidden; }
+
+/* Hero: atmendes Kerzenlicht-Glühen */
+.home-hero::before {
+  content: ''; position: absolute; right: -60px; top: -70px; width: 260px; height: 260px;
+  border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(245,201,107,.28), transparent 62%);
+  animation: heroGlow 5.5s ease-in-out infinite;
+}
+@keyframes heroGlow { 0%,100% { opacity: .55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.18); } }
+.home-hero .hero-stat b { animation: statPop .5s cubic-bezier(.22,1,.36,1) backwards; }
+.hero-stats .hero-stat:nth-child(2) b { animation-delay: .08s; }
+.hero-stats .hero-stat:nth-child(3) b { animation-delay: .16s; }
+@keyframes statPop { from { opacity: 0; transform: translateY(6px) scale(.9); } }
+
+/* Topbar wirft beim Scrollen mehr Schatten */
+.topbar.scrolled { box-shadow: 0 6px 24px rgba(0,0,0,.5); border-bottom-color: rgba(245,201,107,.32); }
+
+/* Aktiver Tab: glühender Punkt */
+.tab.active::before {
+  content: ''; position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
+  width: 18px; height: 3px; border-radius: 3px; background: var(--brand-grad);
+  box-shadow: 0 0 10px rgba(245,201,107,.7);
+}
+@media (min-width: 900px) {
+  .tab.active::before { top: auto; bottom: 2px; }
+  .tab.active { background: rgba(245,201,107,.09); }
+}
+
+/* Fokus-Ringe (Tastatur) */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+/* Sterne funkeln beim Setzen */
+.rate-row .star.on { animation: starPing .35s cubic-bezier(.22,1,.36,1); text-shadow: 0 0 12px rgba(245,201,107,.55); }
+@keyframes starPing { 45% { transform: scale(1.35) rotate(8deg); } }
+
+/* ───── Maskottchen „Fuku" ───── */
+.mascot {
+  position: fixed; z-index: 70;
+  width: 92px; height: 92px;
+  left: 16px; top: 120px;
+  transition: left .9s cubic-bezier(.22,1,.36,1), top .9s cubic-bezier(.22,1,.36,1);
+}
+.mascot.flip .mascot-body { transform: scaleX(-1); }
+.mascot.flip .mascot-body:active { transform: scaleX(-1) scale(.94); }
+.mascot-body {
+  position: absolute; inset: 0;
+  background: none; border: none; padding: 0; cursor: pointer;
+  animation: mascotBob 3.4s ease-in-out infinite;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .12s ease-out;
+}
+.mascot-body svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 6px 10px rgba(0,0,0,.35)); }
+.mascot-body:active { transform: scale(.94); }
+@keyframes mascotBob { 0%,100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-7px) rotate(2deg); } }
+.mascot .eye { transform-box: fill-box; transform-origin: center; animation: mascotBlink 5.5s infinite; }
+@keyframes mascotBlink { 0%,93%,100% { transform: scaleY(1); } 96% { transform: scaleY(.1); } }
+.mascot .spark { transform-box: fill-box; transform-origin: center; animation: mascotSpark 2.4s ease-in-out infinite; }
+@keyframes mascotSpark { 0%,100% { opacity: .35; transform: scale(.8) rotate(0deg); } 50% { opacity: 1; transform: scale(1.15) rotate(45deg); } }
+.mascot-hide {
+  position: absolute; top: -4px; right: -4px;
+  width: 22px; height: 22px; border-radius: 50%; border: none;
+  background: rgba(0,0,0,.6); color: #fff; font-size: 14px; line-height: 22px;
+  cursor: pointer; opacity: 0; transition: opacity .2s; z-index: 2;
+}
+.mascot:hover .mascot-hide, .mascot.talking .mascot-hide { opacity: 1; }
+.mascot-bubble {
+  position: absolute; bottom: 100%; right: 0; margin-bottom: 10px;
+  min-width: 150px; max-width: 230px;
+  background: var(--bg-card); color: var(--text);
+  border: 1px solid var(--border); border-radius: 14px;
+  padding: 10px 12px; box-shadow: var(--shadow);
+  font-size: 13px; line-height: 1.4;
+  animation: bubblePop .25s cubic-bezier(.16,1,.3,1);
+}
+.mascot.flip .mascot-bubble { right: auto; left: 0; }
+.mascot-bubble::after {
+  content: ''; position: absolute; bottom: -7px; right: 24px;
+  width: 12px; height: 12px; background: var(--bg-card);
+  border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+.mascot.flip .mascot-bubble::after { right: auto; left: 24px; }
+@keyframes bubblePop { from { opacity: 0; transform: translateY(6px) scale(.96); } to { opacity: 1; transform: none; } }
+.mascot-bubble-go {
+  margin-top: 8px; background: var(--brand-grad); color: #2b2118;
+  border: none; border-radius: 8px; padding: 6px 12px;
+  font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit;
+}
+.mascot-show {
+  position: fixed; right: 12px; z-index: 70;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  width: 46px; height: 46px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--bg-card);
+  font-size: 24px; cursor: pointer; box-shadow: var(--shadow);
+}
+@media (min-width: 900px) { .mascot-show { bottom: 20px; } }
 
 /* ───── Reduzierte Bewegung ───── */
 :root[data-reduced="1"] *, :root[data-reduced="1"] *::before, :root[data-reduced="1"] *::after {

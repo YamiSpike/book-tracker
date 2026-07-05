@@ -1,5 +1,5 @@
-/* Hon 本 · Bücher Tracker — Service Worker v1 */
-const CACHE = 'buecher-v1';
+/* Hon 本 · Bücher Tracker — Service Worker v2 */
+const CACHE = 'buecher-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -7,6 +7,7 @@ const ASSETS = [
   './js/app.js',
   './js/cloud.js',
   './js/update.js',
+  './js/mascot.js',
   './manifest.json',
   './icon.svg',
   './icons/icon-180.png',
@@ -50,7 +51,7 @@ self.addEventListener('fetch', (e) => {
 
   // API + externe Dienste: Network only (frische Daten, nie cachen)
   if (url.pathname.startsWith('/api/')) return;
-  const externalApi = ['googleapis.com', 'books.google.com', 'openlibrary.org', 'covers.openlibrary.org'];
+  const externalApi = ['googleapis.com', 'books.google.com', 'openlibrary.org', 'covers.openlibrary.org', 'services.dnb.de', 'portal.dnb.de'];
   if (externalApi.some((h) => url.hostname.includes(h))) return;
 
   e.respondWith(
