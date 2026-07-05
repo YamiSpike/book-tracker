@@ -1,0 +1,18 @@
+{
+  "name": "Hon 本 · Bücher Tracker",
+  "short_name": "Hon 本",
+  "description": "Hon 本 — Deine gelesenen Bücher sammeln, bewerten und passende neue Bücher entdecken. Mit Cloud-Sync über alle Geräte.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#171210",
+  "theme_color": "#171210",
+  "lang": "de",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "icons/icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

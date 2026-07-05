@@ -1,0 +1,15 @@
+{
+  "name": "book-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Hon 本 · Bücher Tracker — statische PWA mit Cloud-Sync-Backend (Vercel Serverless + Upstash Redis)",
+  "scripts": {
+    "dev": "vercel dev"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.38.0",
+    "bcryptjs": "^3.0.3",
+    "jsonwebtoken": "^9.0.3"
+  }
+}

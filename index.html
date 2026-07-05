@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#171210" />
+<meta name="description" content="Hon 本 — Deine gelesenen Bücher sammeln, bewerten und passende neue Bücher entdecken. Mit Cloud-Sync über alle Geräte." />
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" type="image/svg+xml" href="icon.svg" />
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Hon 本" />
+
+<title>Hon 本 · Bücher Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Literata:wght@600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-logo" aria-label="Hon Bücher Tracker Logo">
+      <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect width="512" height="512" rx="112" fill="#1c140e"/>
+        <path d="M100 160 Q176 132 248 156 L252 336 Q176 314 100 340 Z" fill="#fdf6e3"/>
+        <path d="M412 160 Q336 132 264 156 L260 336 Q336 314 412 340 Z" fill="#f3e4c2"/>
+        <path d="M248 156 L256 150 L264 156 L260 336 L256 342 L252 336 Z" fill="#e4d3ab"/>
+        <g stroke="#b39868" stroke-width="9" stroke-linecap="round" opacity=".8">
+          <line x1="126" y1="200" x2="226" y2="188"/><line x1="126" y1="238" x2="226" y2="226"/><line x1="126" y1="276" x2="198" y2="266"/>
+        </g>
+        <g stroke="#7c5a28" stroke-width="15" stroke-linecap="round" fill="none">
+          <line x1="336" y1="180" x2="336" y2="300"/><line x1="288" y1="208" x2="384" y2="208"/>
+          <path d="M336 218 Q318 262 288 286"/><path d="M336 218 Q354 262 384 286"/><line x1="310" y1="258" x2="362" y2="258"/>
+        </g>
+        <path d="M244 152 L244 96 Q244 88 252 88 L260 88 Q268 88 268 96 L268 152 L256 142 Z" fill="#d97706"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <h1><span class="brand-name">Hon</span><span class="brand-kanji" aria-hidden="true">本</span></h1>
+      <p class="brand-sub">Bücher Tracker · Deine Lese-Bibliothek</p>
+    </div>
+  </div>
+  <div class="topbar-spacer"></div>
+  <button id="themeToggle" class="icon-btn" title="Theme wechseln" aria-label="Theme">🌙</button>
+</header>
+
+<nav class="tabs" id="mainTabs">
+  <button class="tab active" data-tab="home"><span class="tab-ico">🏠</span><span class="tab-lbl">Start</span></button>
+  <button class="tab" data-tab="suche"><span class="tab-ico">🔍</span><span class="tab-lbl">Entdecken</span></button>
+  <button class="tab" data-tab="sammlung"><span class="tab-ico">📚</span><span class="tab-lbl">Sammlung</span><span class="badge" id="libBadge">0</span></button>
+  <button class="tab" data-tab="tipps"><span class="tab-ico">✨</span><span class="tab-lbl">Für dich</span></button>
+  <button class="tab" data-tab="stats"><span class="tab-ico">📊</span><span class="tab-lbl">Statistik</span></button>
+  <button class="tab" data-tab="settings"><span class="tab-ico">⚙️</span><span class="tab-lbl">Mehr</span></button>
+</nav>
+
+<!-- ─── Start ─── -->
+<section id="view-home" class="view active">
+  <div class="home-hero" id="homeHero"></div>
+  <div class="home-section" id="homeReadingSection" hidden>
+    <h2>📖 Du liest gerade</h2>
+    <p class="section-sub">Angefangene Bücher</p>
+    <div id="homeReading" class="grid"></div>
+  </div>
+  <div class="home-section" id="homeRecentSection" hidden>
+    <h2>🕘 Zuletzt hinzugefügt</h2>
+    <p class="section-sub">Deine neuesten Einträge</p>
+    <div id="homeRecent" class="grid"></div>
+  </div>
+  <div class="home-section" id="homeTipSection" hidden>
+    <div class="home-section-head">
+      <div><h2>✨ Lese-Tipp für dich</h2><p class="section-sub">Basierend auf deiner Sammlung</p></div>
+      <button class="btn-ghost" id="homeTipMore">Mehr Tipps</button>
+    </div>
+    <div id="homeTip" class="grid"></div>
+  </div>
+  <div id="homeEmpty" class="empty" hidden>
+    <div class="big">📚</div>
+    <p><strong>Willkommen in deiner Bibliothek!</strong></p>
+    <p class="muted">Füge dein erstes gelesenes Buch über „Entdecken" hinzu.</p>
+    <button class="btn-primary" id="homeStartBtn" style="margin-top:12px">🔍 Erstes Buch suchen</button>
+  </div>
+</section>
+
+<!-- ─── Entdecken / Suche ─── -->
+<section id="view-suche" class="view">
+  <h2>Bücher entdecken</h2>
+  <p class="section-sub">Suche nach Titel, Autor·in oder ISBN — Daten von Google Books</p>
+  <div class="search-row">
+    <input id="searchInput" type="search" placeholder="z. B. „Der Herr der Ringe" oder „Haruki Murakami"…" autocomplete="off" enterkeyhint="search" />
+    <button class="btn-primary" id="searchBtn">Suchen</button>
+  </div>
+  <div class="quick-chips" id="quickChips">
+    <button class="chip" data-q="subject:fiction bestseller">Romane</button>
+    <button class="chip" data-q="subject:fantasy">Fantasy</button>
+    <button class="chip" data-q="subject:thriller">Thriller</button>
+    <button class="chip" data-q="subject:science fiction">Sci-Fi</button>
+    <button class="chip" data-q="subject:biography">Biografien</button>
+    <button class="chip" data-q="subject:history">Geschichte</button>
+    <button class="chip" data-q="subject:self-help">Ratgeber</button>
+  </div>
+  <div class="grid" id="searchGrid"></div>
+  <div id="searchEmpty" class="empty">
+    <div class="big">🔍</div>
+    <p>Suche nach einem Buch, das du gelesen hast,<br />und füge es deiner Sammlung hinzu.</p>
+  </div>
+</section>
+
+<!-- ─── Sammlung ─── -->
+<section id="view-sammlung" class="view">
+  <h2>Meine Sammlung</h2>
+  <div class="filterbar">
+    <select id="filterStatus" class="select-mini" aria-label="Status">
+      <option value="">Alle Status</option>
+      <option value="read">✓ Gelesen</option>
+      <option value="reading">📖 Lese gerade</option>
+      <option value="want">🔖 Will lesen</option>
+    </select>
+    <select id="filterGenre" class="select-mini" aria-label="Genre"><option value="">Alle Genres</option></select>
+    <select id="sortLib" class="select-mini" aria-label="Sortieren">
+      <option value="added">Sortierung: Zuletzt hinzugefügt</option>
+      <option value="title">Sortierung: Titel</option>
+      <option value="author">Sortierung: Autor·in</option>
+      <option value="rating">Sortierung: Bewertung</option>
+    </select>
+    <button class="btn-ghost" id="exportBtn">Export JSON</button>
+  </div>
+  <div class="grid" id="libGrid"></div>
+  <div id="emptyLib" class="empty" hidden>
+    <div class="big">🗄️</div>
+    <p>Deine Sammlung ist noch leer.</p>
+    <p class="muted">Füge Bücher über den Tab „Entdecken" hinzu.</p>
+  </div>
+</section>
+
+<!-- ─── Empfehlungen ─── -->
+<section id="view-tipps" class="view">
+  <div class="reco-head">
+    <div><h2>Für dich empfohlen</h2><p class="section-sub" id="recoSub">Basierend auf deinen Lieblings-Genres und -Autor·innen</p></div>
+    <button class="btn-ghost" id="recoRefresh">↻ Neu laden</button>
+  </div>
+  <div class="grid" id="recoGrid"></div>
+  <div id="recoEmpty" class="empty" hidden>
+    <div class="big">✨</div>
+    <p>Noch keine Empfehlungen möglich.</p>
+    <p class="muted">Füge mindestens 1 Buch zu deiner Sammlung hinzu — dann analysiere ich deine Genres, Autor·innen und Bewertungen und schlage passende Bücher vor.</p>
+  </div>
+  <div id="recoLoading" hidden><div class="spinner"></div></div>
+</section>
+
+<!-- ─── Statistik ─── -->
+<section id="view-stats" class="view">
+  <h2>Deine Lese-Statistik</h2>
+  <p class="section-sub">Alles über deine Bibliothek auf einen Blick</p>
+  <div class="stats-grid" id="statsGrid"></div>
+  <div id="statsBars"></div>
+</section>
+
+<!-- ─── Einstellungen ─── -->
+<section id="view-settings" class="view">
+  <div class="settings-block">
+    <h2>Einstellungen</h2>
+
+    <h3>☁️ Cloud-Sync</h3>
+    <div class="setting-row">
+      <div>
+        <strong>Sammlung in der Cloud sichern</strong>
+        <p class="muted" id="cloud-status-line">Nicht verbunden — Daten nur auf diesem Gerät.</p>
+      </div>
+      <button class="btn-ghost" id="cloud-open-btn">☁️ Cloud-Sync & Konto einrichten</button>
+    </div>
+
+    <h3>🎨 Darstellung</h3>
+    <div class="setting-row">
+      <div>
+        <strong>Animationen reduzieren</strong>
+        <p class="muted">Weniger Bewegung, ruhigere Übergänge</p>
+      </div>
+      <label class="switch"><input type="checkbox" id="setReducedMotion" /><span></span></label>
+    </div>
+
+    <h3>💾 Daten</h3>
+    <div class="setting-row">
+      <div>
+        <strong>Sammlung als JSON exportieren</strong>
+        <p class="muted">Backup deiner kompletten Bibliothek als Datei</p>
+      </div>
+      <button class="btn-ghost" id="setExport">Export</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <strong>Sammlung aus JSON importieren</strong>
+        <p class="muted">Backup wiederherstellen (wird zusammengeführt)</p>
+      </div>
+      <button class="btn-ghost" id="setImport">Import</button>
+      <input type="file" id="importFile" accept="application/json" hidden />
+    </div>
+
+    <h3>Über</h3>
+    <details class="feature-list" style="font-size:13px;line-height:1.65;">
+      <summary>✨ Alle Funktionen der App anzeigen</summary>
+      <div style="padding:6px 0 2px;">
+        <p class="muted" style="font-weight:700;margin:8px 0 2px;">Entdecken &amp; Suchen</p>
+        <p class="muted" style="margin:0;">Live-Suche über Google Books (Titel, Autor·in, ISBN) · Genre-Schnellfilter · Cover, Beschreibung, Seitenzahl &amp; Erscheinungsjahr in der Detail-Ansicht</p>
+        <p class="muted" style="font-weight:700;margin:8px 0 2px;">Sammeln &amp; Verwalten</p>
+        <p class="muted" style="margin:0;">Lesestatus (Gelesen / Lese gerade / Will lesen) · 5-Sterne-Bewertung · Persönliche Notizen · Genre- &amp; Status-Filter · Sortierung · Entfernen mit Sync-fähigen Löschungen</p>
+        <p class="muted" style="font-weight:700;margin:8px 0 2px;">Empfehlungen</p>
+        <p class="muted" style="margin:0;">Personalisierte Buch-Tipps aus deiner Sammlung (Lieblings-Genres, -Autor·innen, Bewertungen) · Begründung pro Empfehlung · Lese-Tipp auf der Startseite</p>
+        <p class="muted" style="font-weight:700;margin:8px 0 2px;">Statistik</p>
+        <p class="muted" style="margin:0;">Gelesene Bücher &amp; Seiten · Ø-Bewertung · Top-Genres &amp; Top-Autor·innen als Balken · Bücher pro Jahr</p>
+        <p class="muted" style="font-weight:700;margin:8px 0 2px;">Daten &amp; Sicherheit</p>
+        <p class="muted" style="margin:0;">Cloud-Sync (E-Mail-Konto, geteilt mit Nihongo- &amp; Japan-App) · Multi-Device-Merge ohne Datenverlust · Passwort-Wiederherstellung per Code oder E-Mail · Offline-fähig (PWA) · Update-Banner statt Auto-Reload · JSON-Export/-Import</p>
+        <p class="muted" style="font-weight:700;margin:8px 0 2px;">Design &amp; Bedienung</p>
+        <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata)</p>
+      </div>
+    </details>
+    <p class="muted" style="font-size:12px;margin-top:8px;">Version v1</p>
+  </div>
+</section>
+
+<!-- Detail Modal -->
+<div id="modal" class="modal" hidden>
+  <div class="modal-inner" id="modalInner"></div>
+  <button class="modal-close" id="modalClose" aria-label="Schließen">×</button>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast" hidden></div>
+
+<footer class="appfoot">
+  <p>Buchdaten: Google Books · Cover © jeweilige Verlage</p>
+  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v1</p>
+</footer>
+
+<script src="js/update.js"></script>
+<script src="js/cloud.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

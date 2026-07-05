@@ -1,0 +1,70 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2a1f16"/>
+      <stop offset="55%" stop-color="#1c140e"/>
+      <stop offset="100%" stop-color="#120c08"/>
+    </linearGradient>
+    <linearGradient id="pageL" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f3e4c2"/>
+      <stop offset="100%" stop-color="#fdf6e3"/>
+    </linearGradient>
+    <linearGradient id="pageR" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fdf6e3"/>
+      <stop offset="100%" stop-color="#f3e4c2"/>
+    </linearGradient>
+    <linearGradient id="cover" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#b45309"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f5c96b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Hintergrund (maskable-sicher: Motiv bleibt in der inneren 80%-Zone) -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="10" y="10" width="492" height="492" rx="102" fill="none" stroke="#f5c96b" stroke-opacity=".22" stroke-width="4"/>
+
+  <!-- Sterne / Leselicht -->
+  <circle cx="120" cy="104" r="5" fill="#f5c96b" opacity=".75"/>
+  <circle cx="404" cy="128" r="3.5" fill="#f5c96b" opacity=".5"/>
+  <circle cx="368" cy="84" r="2.5" fill="#fdf6e3" opacity=".6"/>
+  <path d="M150 70 l4 10 10 4 -10 4 -4 10 -4 -10 -10 -4 10 -4 z" fill="#f5c96b" opacity=".85"/>
+
+  <!-- Offenes Buch -->
+  <g>
+    <!-- Buchdeckel -->
+    <path d="M76 330 Q76 316 90 314 L246 292 256 300 266 292 422 314 Q436 316 436 330 L436 372 Q436 386 422 384 L266 364 256 372 246 364 90 384 Q76 386 76 372 Z" fill="#8a4b1f"/>
+    <!-- Seitenstapel links -->
+    <path d="M92 322 Q170 296 246 310 L246 356 Q170 342 92 366 Z" fill="#d9c49a"/>
+    <!-- Seitenstapel rechts -->
+    <path d="M420 322 Q342 296 266 310 L266 356 Q342 342 420 366 Z" fill="#d9c49a"/>
+    <!-- Aufgeschlagene Seiten -->
+    <path d="M100 160 Q176 132 248 156 L252 336 Q176 314 100 340 Z" fill="url(#pageL)"/>
+    <path d="M412 160 Q336 132 264 156 L260 336 Q336 314 412 340 Z" fill="url(#pageR)"/>
+    <!-- Falz -->
+    <path d="M248 156 L256 150 L264 156 L260 336 L256 342 L252 336 Z" fill="#e4d3ab"/>
+
+    <!-- Textzeilen links -->
+    <g stroke="#b39868" stroke-width="7" stroke-linecap="round" opacity=".75">
+      <line x1="126" y1="196" x2="226" y2="184"/>
+      <line x1="126" y1="226" x2="226" y2="214"/>
+      <line x1="126" y1="256" x2="226" y2="244"/>
+      <line x1="126" y1="286" x2="198" y2="277"/>
+    </g>
+
+    <!-- 本-Kanji rechts -->
+    <g stroke="#7c5a28" stroke-width="13" stroke-linecap="round" fill="none">
+      <line x1="336" y1="180" x2="336" y2="300"/>
+      <line x1="288" y1="208" x2="384" y2="208"/>
+      <path d="M336 218 Q318 262 288 286"/>
+      <path d="M336 218 Q354 262 384 286"/>
+      <line x1="310" y1="258" x2="362" y2="258"/>
+    </g>
+
+    <!-- Lesezeichen-Band -->
+    <path d="M244 152 L244 96 Q244 88 252 88 L260 88 Q268 88 268 96 L268 152 L256 142 Z" fill="url(#gold)"/>
+  </g>
+</svg>
