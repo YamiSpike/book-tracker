@@ -61,6 +61,9 @@
 <!-- ─── Start ─── -->
 <section id="view-home" class="view active">
   <div class="home-hero" id="homeHero"></div>
+  <div class="home-section" id="homeQuoteSection" hidden>
+    <div class="home-quote" id="homeQuote"></div>
+  </div>
   <div class="home-section" id="homeReadingSection" hidden>
     <h2>📖 Du liest gerade</h2>
     <p class="section-sub">Angefangene Bücher</p>
@@ -92,6 +95,7 @@
   <p class="section-sub">Titel, Autor·in oder ISBN — 3 Quellen parallel: Google Books · Open Library · Deutsche Nationalbibliothek</p>
   <div class="search-row">
     <input id="searchInput" type="search" placeholder="z. B. „Der Herr der Ringe" oder „Haruki Murakami"…" autocomplete="off" enterkeyhint="search" />
+    <button class="icon-btn scan-btn" id="scanBtn" title="ISBN-Barcode scannen" aria-label="Barcode scannen">📷</button>
     <button class="btn-primary" id="searchBtn">Suchen</button>
   </div>
   <div class="quick-chips" id="quickChips">
@@ -121,12 +125,14 @@
       <option value="want">🔖 Will lesen</option>
     </select>
     <select id="filterGenre" class="select-mini" aria-label="Genre"><option value="">Alle Genres</option></select>
+    <select id="filterTag" class="select-mini" aria-label="Regal/Tag"><option value="">Alle Regale/Tags</option></select>
     <select id="sortLib" class="select-mini" aria-label="Sortieren">
       <option value="added">Sortierung: Zuletzt hinzugefügt</option>
       <option value="title">Sortierung: Titel</option>
       <option value="author">Sortierung: Autor·in</option>
       <option value="rating">Sortierung: Bewertung</option>
     </select>
+    <button class="btn-ghost" id="rollBtn">🎲 Was lese ich als Nächstes?</button>
     <button class="btn-ghost" id="exportBtn">Export JSON</button>
   </div>
   <div class="grid" id="libGrid"></div>
@@ -174,7 +180,27 @@
       <button class="btn-ghost" id="cloud-open-btn">☁️ Cloud-Sync & Konto einrichten</button>
     </div>
 
+    <h3>🎯 Lese-Challenge</h3>
+    <div class="setting-row">
+      <div>
+        <strong>Lese-Ziel pro Jahr</strong>
+        <p class="muted">Wie viele Bücher willst du dieses Jahr schaffen? (0 = aus)</p>
+      </div>
+      <input type="number" id="setGoal" class="input-mini" min="0" max="999" style="width:80px" inputmode="numeric" />
+    </div>
+
     <h3>🎨 Darstellung</h3>
+    <div class="setting-row">
+      <div>
+        <strong>Theme</strong>
+        <p class="muted">Dunkel, helles Papier oder automatisch nach System</p>
+      </div>
+      <select id="setThemeMode" class="select-mini">
+        <option value="dark">🌙 Dunkel</option>
+        <option value="light">☀️ Hell</option>
+        <option value="auto">🌗 Automatisch</option>
+      </select>
+    </div>
     <div class="setting-row">
       <div>
         <strong>Animationen reduzieren</strong>
@@ -199,6 +225,21 @@
       <button class="btn-ghost" id="setImport">Import</button>
       <input type="file" id="importFile" accept="application/json" hidden />
     </div>
+    <div class="setting-row">
+      <div>
+        <strong>Goodreads-Import (CSV)</strong>
+        <p class="muted">Goodreads → Settings → Export Library → CSV hier auswählen. Titel, Autor·in, Bewertung, Regal &amp; Lesedatum werden übernommen.</p>
+      </div>
+      <button class="btn-ghost" id="setGrImport">CSV importieren</button>
+      <input type="file" id="grImportFile" accept=".csv,text/csv" hidden />
+    </div>
+    <div class="setting-row">
+      <div>
+        <strong>Goodreads-Export (CSV)</strong>
+        <p class="muted">Sammlung als Goodreads-kompatible CSV-Datei sichern</p>
+      </div>
+      <button class="btn-ghost" id="setGrExport">CSV exportieren</button>
+    </div>
 
     <h3>Über</h3>
     <details class="feature-list" style="font-size:13px;line-height:1.65;">
@@ -209,18 +250,20 @@
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Maskottchen Fuku 🦉</p>
         <p class="muted" style="margin:0;">Bücher-Eule mit Lese-Tipps, Erinnerungen an angefangene Bücher &amp; persönlichen Empfehlungen · antippen für Tipp · ausblendbar</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Sammeln &amp; Verwalten</p>
-        <p class="muted" style="margin:0;">Lesestatus (Gelesen / Lese gerade / Will lesen) · 5-Sterne-Bewertung · Persönliche Notizen · Genre- &amp; Status-Filter · Sortierung · Entfernen mit Sync-fähigen Löschungen</p>
+        <p class="muted" style="margin:0;">Lesestatus (Gelesen / Lese gerade / Will lesen) · 5-Sterne-Bewertung · Persönliche Notizen · 📷 ISBN-Barcode-Scanner (Kamera) · Lese-Fortschritt in Seiten mit Balken (letzte Seite = automatisch „Gelesen") · Eigene Regale/Tags · ✍️ Zitate-Sammlung pro Buch · Genre-, Status- &amp; Tag-Filter · Sortierung · 🎲 „Was lese ich als Nächstes?"-Zufallsrad · Entfernen mit Sync-fähigen Löschungen</p>
+        <p class="muted" style="font-weight:700;margin:8px 0 2px;">Lese-Challenge &amp; Tagebuch</p>
+        <p class="muted" style="margin:0;">🎯 Jahres-Leseziel mit Fortschrittsring auf der Startseite · Automatisches Lese-Tagebuch (Start-/Enddatum je Buch) · 🔥 Aktivitäts-Heatmap (26 Wochen) · Zitat des Tages · 📚 Buchreihen-Erkennung mit fehlenden Bänden</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Empfehlungen</p>
         <p class="muted" style="margin:0;">Personalisierte Buch-Tipps aus deiner Sammlung (Lieblings-Genres, -Autor·innen, Bewertungen) · Begründung pro Empfehlung · Lese-Tipp auf der Startseite</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Statistik</p>
         <p class="muted" style="margin:0;">Gelesene Bücher &amp; Seiten · Ø-Bewertung · Top-Genres &amp; Top-Autor·innen als Balken · Bücher pro Jahr</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Daten &amp; Sicherheit</p>
-        <p class="muted" style="margin:0;">Cloud-Sync (E-Mail-Konto, geteilt mit Nihongo- &amp; Japan-App) · Multi-Device-Merge ohne Datenverlust · Passwort-Wiederherstellung per Code oder E-Mail · Offline-fähig (PWA) · Update-Banner statt Auto-Reload · JSON-Export/-Import</p>
+        <p class="muted" style="margin:0;">Cloud-Sync (E-Mail-Konto, geteilt mit Nihongo- &amp; Japan-App) · Multi-Device-Merge ohne Datenverlust · Passwort-Wiederherstellung per Code oder E-Mail · Offline-fähig (PWA) · Update-Banner statt Auto-Reload · JSON-Export/-Import · Goodreads-Import &amp; -Export (CSV)</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Design &amp; Bedienung</p>
-        <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Kerzenlicht-Glühen im Hero · Gestaffelte Karten-Animationen · Cover-Zoom &amp; Glanz-Effekt · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata)</p>
+        <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Kerzenlicht-Glühen im Hero · Gestaffelte Karten-Animationen · Cover-Zoom &amp; Glanz-Effekt · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata) · 🌗 Auto-Theme nach Systemeinstellung</p>
       </div>
     </details>
-    <p class="muted" style="font-size:12px;margin-top:8px;">Version v2</p>
+    <p class="muted" style="font-size:12px;margin-top:8px;">Version v3</p>
   </div>
 </section>
 
@@ -235,7 +278,7 @@
 
 <footer class="appfoot">
   <p>Buchdaten: Google Books · Open Library · Deutsche Nationalbibliothek — Cover © jeweilige Verlage</p>
-  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v2</p>
+  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v3</p>
 </footer>
 
 <script src="js/update.js"></script>

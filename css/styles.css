@@ -473,6 +473,144 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 .rate-row .star.on { animation: starPing .35s cubic-bezier(.22,1,.36,1); text-shadow: 0 0 12px rgba(245,201,107,.55); }
 @keyframes starPing { 45% { transform: scale(1.35) rotate(8deg); } }
 
+/* ───── v3: Challenge-Ring im Hero ───── */
+.hero-flex { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.hero-main { min-width: 0; flex: 1; }
+.challenge-ring { position: relative; width: 96px; text-align: center; flex-shrink: 0; }
+.challenge-ring svg { width: 84px; height: 84px; transform: rotate(-90deg); }
+.challenge-ring .ring-bg { fill: none; stroke: rgba(255,255,255,.12); stroke-width: 7; }
+:root[data-theme="light"] .challenge-ring .ring-bg { stroke: rgba(90,60,20,.15); }
+.challenge-ring .ring-fg {
+  fill: none; stroke: var(--accent); stroke-width: 7; stroke-linecap: round;
+  transition: stroke-dashoffset 1s cubic-bezier(.22,1,.36,1);
+  filter: drop-shadow(0 0 6px rgba(245,201,107,.5));
+}
+.challenge-ring .ring-txt {
+  position: absolute; top: 26px; left: 0; right: 0; line-height: 1;
+}
+.challenge-ring .ring-txt b { font-size: 22px; font-family: var(--font-display); color: var(--accent); }
+.challenge-ring .ring-txt span { font-size: 11px; opacity: .7; }
+.challenge-ring .ring-lbl { font-size: 10px; opacity: .75; margin-top: 2px; }
+.ring-set { align-self: center; }
+
+/* ───── v3: Zitat des Tages ───── */
+.home-quote {
+  position: relative; border-radius: var(--radius);
+  padding: 18px 20px 14px 46px; margin-bottom: 16px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  font-family: var(--font-display); font-size: 15.5px; line-height: 1.55; font-style: italic;
+}
+.home-quote .quote-mark {
+  position: absolute; left: 14px; top: 4px; font-size: 44px; line-height: 1;
+  color: var(--accent); opacity: .55; font-style: normal;
+}
+.home-quote .quote-src { font-family: var(--font-ui); font-style: normal; font-size: 11.5px; color: var(--text-dim); margin-top: 8px; }
+
+/* ───── v3: Fortschritt auf Karte + im Detail ───── */
+.card-progress {
+  position: relative; height: 14px; border-radius: 7px; margin-top: 6px;
+  background: var(--bg-soft); border: 1px solid var(--border); overflow: hidden;
+}
+.card-progress i { display: block; height: 100%; background: var(--brand-grad); border-radius: 7px; transition: width .5s cubic-bezier(.22,1,.36,1); }
+.card-progress span {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 800; color: var(--text); text-shadow: 0 1px 2px rgba(0,0,0,.4);
+}
+.progress-edit, .tags-edit {
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  padding: 8px 18px 0; font-size: 12.5px;
+}
+.progress-edit label, .tags-edit label { color: var(--text-dim); font-weight: 600; }
+.progress-edit input {
+  width: 84px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text);
+  padding: 8px 10px; border-radius: 9px; font-size: 13px; outline: none;
+}
+.progress-edit input:focus { border-color: var(--accent); }
+.progress-pct { color: var(--accent); font-weight: 700; font-size: 11.5px; }
+.tags-edit input {
+  flex: 1; min-width: 160px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text);
+  padding: 8px 10px; border-radius: 9px; font-size: 12.5px; outline: none;
+}
+.tags-edit input:focus { border-color: var(--accent); }
+
+/* ───── v3: Zitate im Detail ───── */
+.quotes-block { padding: 12px 18px 0; }
+.quotes-head { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+.quote-item {
+  position: relative; display: flex; gap: 4px; align-items: flex-start;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 9px 34px 9px 12px; margin-bottom: 6px;
+  font-family: var(--font-display); font-style: italic; font-size: 13px; line-height: 1.5;
+}
+.quote-item .quote-mark { color: var(--accent); font-size: 17px; font-style: normal; }
+.quote-del {
+  position: absolute; right: 6px; top: 6px; background: none; border: none;
+  font-size: 13px; cursor: pointer; opacity: .55; padding: 3px;
+}
+.quote-del:hover { opacity: 1; }
+.quote-add { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 4px; }
+.quote-add textarea {
+  flex: 1; min-width: 180px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; color: var(--text); padding: 9px 10px; font-size: 12.5px; resize: vertical; outline: none;
+}
+.quote-add textarea:focus { border-color: var(--accent); }
+
+/* ───── v3: Barcode-Scanner ───── */
+.scan-btn { border-color: var(--border); background: var(--bg-soft); color: var(--text); flex-shrink: 0; height: auto; }
+.scan-modal {
+  position: fixed; inset: 0; z-index: 100030;
+  background: rgba(8,5,3,.88); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center; padding: 18px;
+}
+.scan-inner { position: relative; width: 100%; max-width: 420px; text-align: center; }
+.scan-inner video {
+  width: 100%; aspect-ratio: 3/4; object-fit: cover;
+  border-radius: 18px; border: 1px solid rgba(245,201,107,.4);
+  background: #000;
+}
+.scan-frame {
+  position: absolute; left: 12%; right: 12%; top: 34%; height: 22%;
+  border: 2.5px solid var(--accent); border-radius: 12px;
+  box-shadow: 0 0 0 2000px rgba(0,0,0,.25);
+  pointer-events: none; animation: scanPulse 1.6s ease-in-out infinite;
+}
+@keyframes scanPulse { 0%,100% { opacity: .95; } 50% { opacity: .5; } }
+.scan-hint { color: #f2e9dc; font-size: 13px; margin: 12px 0 10px; }
+
+/* ───── v3: Cover-Roulette ───── */
+.roll-modal {
+  position: fixed; inset: 0; z-index: 100030;
+  background: rgba(8,5,3,.82); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+}
+.roll-inner { text-align: center; }
+.roll-title { color: #f2e9dc; font-family: var(--font-display); font-size: 19px; margin-bottom: 16px; }
+.roll-cover img { width: 150px; aspect-ratio: 2/3; object-fit: cover; border-radius: 12px; box-shadow: 0 18px 50px rgba(0,0,0,.6); }
+.roll-cover { display: flex; justify-content: center; min-height: 225px; }
+.roll-cover.winner { animation: rollWin .55s cubic-bezier(.22,1,.36,1); }
+@keyframes rollWin { 0% { transform: scale(.92); } 55% { transform: scale(1.12) rotate(2deg); } 100% { transform: scale(1); } }
+.roll-name { color: #f5c96b; font-weight: 800; font-size: 15px; margin-top: 12px; max-width: 280px; }
+
+/* ───── v3: Heatmap + Reihen ───── */
+.heatmap-wrap { overflow-x: auto; padding-bottom: 4px; }
+.heatmap {
+  display: grid; grid-template-rows: repeat(7, 11px); grid-auto-flow: column;
+  grid-auto-columns: 11px; gap: 3px; width: max-content;
+}
+.heatmap i, .hm-legend i { display: block; width: 11px; height: 11px; border-radius: 3px; }
+.hm-0 { background: var(--bg-card); border: 1px solid var(--border); box-sizing: border-box; }
+.hm-1 { background: rgba(245,201,107,.35); }
+.hm-2 { background: rgba(217,119,6,.7); }
+.hm-3 { background: var(--accent-deep); box-shadow: 0 0 5px rgba(245,201,107,.6); }
+.hm-legend { display: flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 10.5px; color: var(--muted); }
+.series-row {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 7px; font-size: 12.5px;
+}
+.series-missing { color: var(--danger); font-weight: 700; font-size: 11.5px; }
+.series-full { color: var(--good); font-weight: 700; font-size: 11.5px; }
+
 /* ───── Maskottchen „Fuku" ───── */
 .mascot {
   position: fixed; z-index: 70;

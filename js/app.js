@@ -47,6 +47,20 @@
   }
   var STATUS_LBL = { read: '✓ Gelesen', reading: '📖 Lese gerade', want: '🔖 Will lesen' };
 
+  // ───── Buchreihen-Erkennung (aus dem Titel) ─────
+  function seriesOf(b) {
+    var t = b.title || '';
+    var m = t.match(/^(.*?)[\s:–—-]*(?:Band|Bd\.?|Vol\.?|Volume|Teil|Tome|#)\s*(\d+)/i);
+    if (m && m[1].trim().length > 1) return { name: m[1].trim().replace(/[.,:;·–—-]+\s*$/, ''), num: parseInt(m[2], 10) };
+    m = t.match(/^(.{3,}?)\s+(\d{1,3})$/); // z.B. "Naruto 12"
+    if (m) return { name: m[1].trim(), num: parseInt(m[2], 10) };
+    return null;
+  }
+
+  function fmtDate(ts) {
+    return ts ? new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+  }
+
   // ───── Google-Books-Normalisierung ─────
   function normVolume(v) {
     var vi = v.volumeInfo || {};
@@ -212,14 +226,26 @@
   }
 
   // ───── Sammlung ändern ─────
+  // Lese-Tagebuch: Statuswechsel setzt Start-/Enddatum automatisch
+  function statusDates(existing, status, now) {
+    var p = {};
+    if (status === 'reading' && !(existing && existing.startedAt)) p.startedAt = now;
+    if (status === 'read') {
+      if (!(existing && existing.startedAt)) p.startedAt = now;
+      if (!(existing && existing.finishedAt)) p.finishedAt = now;
+    }
+    return p;
+  }
   function upsertBook(b, status) {
     var all = loadBooks();
     var idx = all.findIndex(function (x) { return x.id === b.id; });
     var now = Date.now();
     if (idx >= 0) {
-      all[idx] = Object.assign({}, all[idx], { status: status || all[idx].status, deleted: false, updatedAt: now });
+      var st = status || all[idx].status;
+      all[idx] = Object.assign({}, all[idx], statusDates(all[idx], st, now), { status: st, deleted: false, updatedAt: now });
     } else {
-      all.push(Object.assign({}, b, { status: status || 'read', rating: 0, note: '', addedAt: now, updatedAt: now }));
+      var st2 = status || 'read';
+      all.push(Object.assign({}, b, statusDates(null, st2, now), { status: st2, rating: 0, note: '', progress: 0, tags: [], quotes: [], addedAt: now, updatedAt: now }));
     }
     saveBooks(all);
     refreshAll();
@@ -252,11 +278,17 @@
     var mark = (!opts.showStatus && own) ? '<span class="in-lib" title="In deiner Sammlung">✓</span>' : '';
     var stars = (own && own.rating) ? '<div class="stars">' + starsTxt(own.rating) + '</div>' : '';
     var reason = opts.reason ? '<span class="reco-reason">' + esc(opts.reason) + '</span>' : '';
+    // Lese-Fortschritt als Balken auf der Karte
+    var prog = '';
+    if (own && own.status === 'reading' && own.progress > 0 && (own.pages || 0) > 0) {
+      var pct = Math.min(100, Math.round(own.progress / own.pages * 100));
+      prog = '<div class="card-progress" title="Seite ' + own.progress + ' von ' + own.pages + '"><i style="width:' + pct + '%"></i><span>' + pct + '%</span></div>';
+    }
     return '<article class="card" data-id="' + esc(b.id) + '" data-src="' + esc(opts.src || 'lib') + '">'
       + chip + mark + coverHtml(b)
       + reason
       + '<div class="meta"><div class="title">' + esc(b.title) + '</div>'
-      + '<div class="author">' + esc(b.authors.join(', ') || '–') + '</div>' + stars + '</div></article>';
+      + '<div class="author">' + esc(b.authors.join(', ') || '–') + '</div>' + stars + prog + '</div></article>';
   }
 
   // ───── Tabs ─────
@@ -281,14 +313,53 @@
     var hero = $('homeHero');
     var hour = new Date().getHours();
     var greet = hour < 11 ? 'Guten Morgen' : hour < 18 ? 'Willkommen zurück' : 'Guten Abend';
+
+    // Lese-Challenge: Ring mit Jahresfortschritt
+    var goal = parseInt(loadSettings().goal, 10) || 0;
+    var yr = new Date().getFullYear();
+    var doneThisYear = read.filter(function (b) {
+      return new Date(b.finishedAt || b.addedAt || 0).getFullYear() === yr;
+    }).length;
+    var ringHtml = '';
+    if (goal > 0) {
+      var pct = Math.min(1, doneThisYear / goal);
+      var C = 2 * Math.PI * 34; // Umfang bei r=34
+      ringHtml = '<div class="challenge-ring" role="img" aria-label="Lese-Challenge: ' + doneThisYear + ' von ' + goal + ' Büchern">'
+        + '<svg viewBox="0 0 80 80"><circle class="ring-bg" cx="40" cy="40" r="34"/>'
+        + '<circle class="ring-fg" cx="40" cy="40" r="34" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + (C * (1 - pct)).toFixed(1) + '"/></svg>'
+        + '<div class="ring-txt"><b>' + doneThisYear + '</b><span>/' + goal + '</span></div>'
+        + '<div class="ring-lbl">🎯 Challenge ' + yr + (doneThisYear >= goal ? ' — geschafft! 🎉' : '') + '</div>'
+        + '</div>';
+    } else {
+      ringHtml = '<button class="btn-ghost ring-set" id="goalSetBtn">🎯 Lese-Ziel für ' + yr + ' setzen</button>';
+    }
+
     hero.innerHTML = '<span class="hero-kanji">本</span>'
+      + '<div class="hero-flex"><div class="hero-main">'
       + '<h2>' + greet + ', Leseratte!</h2>'
       + '<p>Deine persönliche Bibliothek — gesichert in der Cloud.</p>'
       + '<div class="hero-stats">'
       + '<div class="hero-stat"><b>' + read.length + '</b><span>gelesen</span></div>'
       + '<div class="hero-stat"><b>' + reading.length + '</b><span>am Lesen</span></div>'
       + '<div class="hero-stat"><b>' + pages.toLocaleString('de-DE') + '</b><span>Seiten</span></div>'
-      + '</div>';
+      + '</div></div>'
+      + ringHtml + '</div>';
+    var gsb = document.getElementById('goalSetBtn');
+    if (gsb) gsb.addEventListener('click', function () { switchTab('settings'); var gi = $('setGoal'); if (gi) gi.focus(); });
+
+    // Zitat des Tages (deterministisch pro Tag aus allen gespeicherten Zitaten)
+    var allQuotes = [];
+    books.forEach(function (b) { (b.quotes || []).forEach(function (q) { allQuotes.push({ q: q.text, from: b.title }); }); });
+    var qSec = $('homeQuoteSection');
+    if (qSec) {
+      if (allQuotes.length) {
+        var dayIdx = Math.floor(Date.now() / 86400000) % allQuotes.length;
+        var qq = allQuotes[dayIdx];
+        qSec.hidden = false;
+        $('homeQuote').innerHTML = '<span class="quote-mark">„</span>' + esc(qq.q) + '"'
+          + '<div class="quote-src">— aus „' + esc(qq.from) + '"</div>';
+      } else qSec.hidden = true;
+    }
 
     $('homeEmpty').hidden = books.length > 0;
 
@@ -343,7 +414,7 @@
   function renderLib() {
     var books = lib();
     $('libBadge').textContent = books.length;
-    var st = $('filterStatus').value, ge = $('filterGenre').value, sort = $('sortLib').value;
+    var st = $('filterStatus').value, ge = $('filterGenre').value, tg = $('filterTag').value, sort = $('sortLib').value;
 
     // Genre-Filter-Optionen aktuell halten
     var genres = {};
@@ -353,9 +424,19 @@
       return '<option value="' + esc(g) + '"' + (g === cur ? ' selected' : '') + '>' + esc(g) + '</option>';
     }).join('');
 
+    // Regal-/Tag-Filter-Optionen
+    var tags = {};
+    books.forEach(function (b) { (b.tags || []).forEach(function (t) { tags[t] = 1; }); });
+    var tsel = $('filterTag'), tcur = tsel.value;
+    tsel.innerHTML = '<option value="">Alle Regale/Tags</option>' + Object.keys(tags).sort().map(function (t) {
+      return '<option value="' + esc(t) + '"' + (t === tcur ? ' selected' : '') + '>🏷️ ' + esc(t) + '</option>';
+    }).join('');
+    tsel.style.display = Object.keys(tags).length ? '' : 'none';
+
     var out = books.filter(function (b) {
       if (st && b.status !== st) return false;
       if (ge && !(b.categories || []).some(function (c) { return c.split('/')[0].trim() === ge; })) return false;
+      if (tg && !(b.tags || []).some(function (t) { return t === tg; })) return false;
       return true;
     });
     out.sort(function (a, b) {
@@ -487,8 +568,56 @@
       (b.authors || []).forEach(function (a) { aut[a] = (aut[a] || 0) + 1; });
       var y = new Date(b.addedAt || Date.now()).getFullYear(); yrs[y] = (yrs[y] || 0) + 1;
     });
+    // Lese-Heatmap: letzte 26 Wochen (hinzugefügt = 1 Punkt, beendet = 2 Punkte)
+    function heatmapHtml() {
+      var days = Object.create(null);
+      books.forEach(function (b) {
+        if (b.addedAt) { var d1 = new Date(b.addedAt).toISOString().slice(0, 10); days[d1] = (days[d1] || 0) + 1; }
+        if (b.finishedAt) { var d2 = new Date(b.finishedAt).toISOString().slice(0, 10); days[d2] = (days[d2] || 0) + 2; }
+      });
+      var today = new Date(); today.setHours(12, 0, 0, 0);
+      var start = new Date(today.getTime() - (26 * 7 - 1) * 86400000);
+      // auf Montag zurückdrehen
+      start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+      var cells = '', d = new Date(start), mons = [];
+      while (d <= today) {
+        var key = d.toISOString().slice(0, 10);
+        var n = days[key] || 0;
+        var lvl = n === 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : 3;
+        cells += '<i class="hm-' + lvl + '" title="' + fmtDate(d.getTime()) + (n ? ' · Aktivität: ' + n : '') + '"></i>';
+        d = new Date(d.getTime() + 86400000);
+      }
+      return '<h2 style="font-size:16px;margin-top:22px">🔥 Lese-Aktivität (26 Wochen)</h2>'
+        + '<div class="heatmap-wrap"><div class="heatmap">' + cells + '</div>'
+        + '<div class="hm-legend"><span>wenig</span><i class="hm-0"></i><i class="hm-1"></i><i class="hm-2"></i><i class="hm-3"></i><span>viel</span></div></div>';
+    }
+
+    // Buchreihen: gruppieren + fehlende Bände zeigen
+    function seriesHtml() {
+      var groups = Object.create(null);
+      books.forEach(function (b) {
+        var s = seriesOf(b);
+        if (!s) return;
+        var k = s.name.toLowerCase();
+        if (!groups[k]) groups[k] = { name: s.name, nums: [] };
+        if (groups[k].nums.indexOf(s.num) < 0) groups[k].nums.push(s.num);
+      });
+      var keys = Object.keys(groups).filter(function (k) { return groups[k].nums.length >= 2; });
+      if (!keys.length) return '';
+      var rows = keys.sort().map(function (k) {
+        var g = groups[k]; g.nums.sort(function (a, b) { return a - b; });
+        var max = g.nums[g.nums.length - 1], missing = [];
+        for (var n = 1; n <= max; n++) if (g.nums.indexOf(n) < 0) missing.push(n);
+        return '<div class="series-row"><strong>📚 ' + esc(g.name) + '</strong>'
+          + '<span class="muted">Bände: ' + g.nums.join(', ') + '</span>'
+          + (missing.length ? '<span class="series-missing">Fehlt: Band ' + missing.join(', ') + '</span>' : '<span class="series-full">✓ lückenlos</span>')
+          + '</div>';
+      }).join('');
+      return '<h2 style="font-size:16px;margin-top:22px">📚 Deine Buchreihen</h2>' + rows;
+    }
+
     $('statsBars').innerHTML = books.length
-      ? barBlock('📚 Top-Genres', gen) + barBlock('✍️ Top-Autor·innen', aut) + barBlock('🗓️ Hinzugefügt pro Jahr', yrs)
+      ? heatmapHtml() + seriesHtml() + barBlock('📚 Top-Genres', gen) + barBlock('✍️ Top-Autor·innen', aut) + barBlock('🗓️ Hinzugefügt pro Jahr', yrs)
       : '<div class="empty"><div class="big">📊</div><p>Noch keine Daten — füge zuerst Bücher hinzu.</p></div>';
   }
 
@@ -504,6 +633,20 @@
       + '</div>';
   }
 
+  // Zitate-Bereich im Detail
+  function quotesHtml(own) {
+    var qs = own.quotes || [];
+    return '<div class="quotes-block">'
+      + '<div class="quotes-head">✍️ Zitate <span class="muted">(' + qs.length + ')</span></div>'
+      + qs.map(function (q, i) {
+        return '<div class="quote-item"><span class="quote-mark">„</span><span class="quote-text">' + esc(q.text) + '"</span>'
+          + '<button class="quote-del" data-qi="' + i + '" aria-label="Zitat löschen">🗑</button></div>';
+      }).join('')
+      + '<div class="quote-add"><textarea id="quoteInput" placeholder="Lieblingszitat aus dem Buch…" rows="2"></textarea>'
+      + '<button class="btn-ghost" id="quoteAddBtn">+ Zitat speichern</button></div>'
+      + '</div>';
+  }
+
   // ───── Detail-Modal ─────
   var modalBook = null;
   function openDetail(b) {
@@ -514,7 +657,11 @@
     if (b.year) facts.push(b.year);
     if (b.pages) facts.push(b.pages + ' Seiten');
     (b.categories || []).slice(0, 3).forEach(function (c) { facts.push(c.split('/')[0].trim()); });
-    if (b.gRating) facts.push('★ ' + b.gRating + ' (Google)');
+    if (b.gRating) facts.push('★ ' + b.gRating);
+    var ser = seriesOf(b);
+    if (ser) facts.push('📚 ' + ser.name + ' · Band ' + ser.num);
+    if (own && own.startedAt) facts.push('▶ ' + fmtDate(own.startedAt));
+    if (own && own.finishedAt) facts.push('✓ ' + fmtDate(own.finishedAt));
 
     var statusRow = ['read', 'reading', 'want'].map(function (s) {
       var on = own && own.status === s;
@@ -537,7 +684,15 @@
       + (own ? '<button class="status-btn danger" data-remove="1">🗑️ Entfernen</button>' : '')
       + '</div></div>'
       + (own ? '<div class="rate-row" aria-label="Bewertung">' + stars + '</div>'
+        + (own.status === 'reading' && (own.pages || 0) > 0
+          ? '<div class="progress-edit"><label for="progInput">📖 Aktuelle Seite:</label>'
+            + '<input id="progInput" type="number" min="0" max="' + own.pages + '" value="' + (own.progress || 0) + '" inputmode="numeric" />'
+            + '<span class="progress-pct">' + Math.min(100, Math.round((own.progress || 0) / own.pages * 100)) + '% von ' + own.pages + '</span></div>'
+          : '')
+        + '<div class="tags-edit"><label for="tagsInput">🏷️ Regale/Tags (Komma-getrennt):</label>'
+          + '<input id="tagsInput" type="text" placeholder="z. B. Klassiker, Urlaub 2026" value="' + esc((own.tags || []).join(', ')) + '" /></div>'
         + '<div style="padding:8px 18px 0"><textarea class="note-area" id="noteArea" placeholder="Deine Notizen zu diesem Buch…">' + esc(own.note || '') + '</textarea></div>'
+        + quotesHtml(own)
         : '')
       + shopLinksHtml(b)
       + '<div class="detail-body">'
@@ -571,6 +726,48 @@
     });
     var na = inner.querySelector('#noteArea');
     if (na) na.addEventListener('change', function () { patchBook(b.id, { note: na.value }); toast('Notiz gespeichert ✓'); });
+
+    // Lese-Fortschritt (Seite)
+    var pi = inner.querySelector('#progInput');
+    if (pi) pi.addEventListener('change', function () {
+      var v = Math.max(0, Math.min(own.pages || 9999, parseInt(pi.value, 10) || 0));
+      var patch = { progress: v };
+      // Letzte Seite erreicht → als gelesen markieren
+      if (own.pages && v >= own.pages) { patch.status = 'read'; patch.finishedAt = Date.now(); toast('🎉 Buch beendet — als „Gelesen" markiert!'); }
+      else toast('Fortschritt gespeichert: Seite ' + v + ' ✓');
+      patchBook(b.id, patch);
+      openDetail(b);
+    });
+
+    // Tags/Regale
+    var ti = inner.querySelector('#tagsInput');
+    if (ti) ti.addEventListener('change', function () {
+      var tags = ti.value.split(',').map(function (t) { return t.trim(); }).filter(Boolean).slice(0, 12);
+      patchBook(b.id, { tags: tags });
+      toast('Tags gespeichert ✓');
+    });
+
+    // Zitate
+    var qa = inner.querySelector('#quoteAddBtn');
+    if (qa) qa.addEventListener('click', function () {
+      var inp = inner.querySelector('#quoteInput');
+      var txt = (inp.value || '').trim();
+      if (!txt) return;
+      var cur = findInLib(b.id);
+      var qs = (cur && cur.quotes || []).concat([{ text: txt.slice(0, 500), addedAt: Date.now() }]);
+      patchBook(b.id, { quotes: qs });
+      toast('Zitat gespeichert ✓');
+      openDetail(b);
+    });
+    inner.querySelectorAll('.quote-del').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var cur = findInLib(b.id);
+        var qs = (cur && cur.quotes || []).slice();
+        qs.splice(parseInt(btn.dataset.qi, 10), 1);
+        patchBook(b.id, { quotes: qs });
+        openDetail(b);
+      });
+    });
 
     // Open-Library-Bücher: Beschreibung lazy nachladen (steckt im Works-Endpoint)
     if (!b.desc && b.olKey) {
@@ -691,14 +888,194 @@
     rd.readAsText(file);
   }
 
+  // ───── Goodreads-CSV Import/Export ─────
+  function csvParse(text) {
+    var rows = [], row = [], cell = '', inQ = false;
+    for (var i = 0; i < text.length; i++) {
+      var c = text[i];
+      if (inQ) {
+        if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else inQ = false; }
+        else cell += c;
+      } else if (c === '"') inQ = true;
+      else if (c === ',') { row.push(cell); cell = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        row.push(cell); cell = '';
+        if (row.length > 1 || row[0] !== '') rows.push(row);
+        row = [];
+      } else cell += c;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+
+  function importGoodreads(file) {
+    var rd = new FileReader();
+    rd.onload = function () {
+      try {
+        var rows = csvParse(String(rd.result));
+        if (rows.length < 2) throw new Error('leer');
+        var head = rows[0].map(function (h) { return h.trim().toLowerCase(); });
+        function col(name) { return head.indexOf(name.toLowerCase()); }
+        var iT = col('Title'), iA = col('Author'), iI = col('ISBN13'), iR = col('My Rating'),
+            iS = col('Exclusive Shelf'), iD = col('Date Read'), iP = col('Number of Pages');
+        if (iT < 0) throw new Error('Kein Goodreads-Format (Spalte „Title" fehlt)');
+        var all = loadBooks(), added = 0, now = Date.now();
+        var shelfMap = { 'read': 'read', 'currently-reading': 'reading', 'to-read': 'want' };
+        rows.slice(1).forEach(function (r) {
+          var title = (r[iT] || '').trim();
+          if (!title) return;
+          var isbn = iI >= 0 ? (r[iI] || '').replace(/[^0-9Xx]/g, '') : '';
+          var author = iA >= 0 ? (r[iA] || '').trim() : '';
+          var id = 'gr-' + (isbn || (title + '|' + author).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40));
+          if (all.some(function (x) { return x.id === id; })) return;
+          var key = (title + '|' + author).toLowerCase().replace(/[^a-zäöüß0-9|]/g, '');
+          if (all.some(function (x) { return !x.deleted && bookKey(x) === key; })) return;
+          var dateRead = iD >= 0 && r[iD] ? new Date(r[iD]).getTime() || 0 : 0;
+          var status = shelfMap[(iS >= 0 ? r[iS] : 'read').trim()] || 'read';
+          all.push({
+            id: id, title: title, authors: author ? [author] : [],
+            cover: isbn ? ('https://covers.openlibrary.org/b/isbn/' + isbn + '-M.jpg') : '',
+            year: '', pages: iP >= 0 ? (parseInt(r[iP], 10) || 0) : 0,
+            categories: [], desc: '', lang: '', isbn: isbn, gRating: 0,
+            status: status, rating: iR >= 0 ? (parseInt(r[iR], 10) || 0) : 0,
+            note: '', progress: 0, tags: ['Goodreads-Import'], quotes: [],
+            startedAt: status !== 'want' ? (dateRead || now) : 0,
+            finishedAt: status === 'read' ? (dateRead || now) : 0,
+            addedAt: dateRead || now, updatedAt: now
+          });
+          added++;
+        });
+        saveBooks(all);
+        refreshAll();
+        toast('📥 ' + added + ' Bücher aus Goodreads importiert ✓');
+      } catch (e) { toast('Import fehlgeschlagen: ' + e.message); }
+    };
+    rd.readAsText(file);
+  }
+
+  function csvCell(s) { s = String(s == null ? '' : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+  function exportGoodreadsCsv() {
+    var shelfMap = { read: 'read', reading: 'currently-reading', want: 'to-read' };
+    var head = 'Title,Author,ISBN13,My Rating,Exclusive Shelf,Date Read,Number of Pages';
+    var lines = lib().map(function (b) {
+      var dr = b.finishedAt ? new Date(b.finishedAt).toISOString().slice(0, 10).replace(/-/g, '/') : '';
+      return [b.title, (b.authors || [])[0] || '', b.isbn || '', b.rating || 0, shelfMap[b.status] || 'read', dr, b.pages || ''].map(csvCell).join(',');
+    });
+    var blob = new Blob(['﻿' + head + '\n' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'hon-goodreads-' + new Date().toISOString().slice(0, 10) + '.csv';
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+    toast('CSV-Export erstellt ✓');
+  }
+
+  // ───── ISBN-Barcode-Scanner (BarcodeDetector-API, Chrome/Edge/Android) ─────
+  var scanStream = null, scanTimer = null;
+  function stopScanner() {
+    clearInterval(scanTimer); scanTimer = null;
+    if (scanStream) { scanStream.getTracks().forEach(function (t) { t.stop(); }); scanStream = null; }
+    var m = document.getElementById('scanModal');
+    if (m) m.remove();
+  }
+  function startScanner() {
+    if (!('BarcodeDetector' in window)) {
+      toast('📷 Dein Browser kann leider keine Barcodes scannen (iOS Safari) — tippe die ISBN einfach ins Suchfeld.');
+      $('searchInput').focus();
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('Keine Kamera verfügbar — ISBN bitte ins Suchfeld tippen.');
+      return;
+    }
+    var m = document.createElement('div');
+    m.id = 'scanModal';
+    m.className = 'scan-modal';
+    m.innerHTML = '<div class="scan-inner"><video id="scanVideo" playsinline autoplay muted></video>'
+      + '<div class="scan-frame"></div>'
+      + '<p class="scan-hint">Barcode (ISBN) auf der Buchrückseite in den Rahmen halten</p>'
+      + '<button class="btn-ghost" id="scanCancel">Abbrechen</button></div>';
+    document.body.appendChild(m);
+    document.getElementById('scanCancel').addEventListener('click', stopScanner);
+    m.addEventListener('click', function (e) { if (e.target === m) stopScanner(); });
+
+    var detector;
+    try { detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8'] }); }
+    catch (e) { stopScanner(); toast('Barcode-Scanner konnte nicht starten.'); return; }
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (stream) {
+      scanStream = stream;
+      var video = document.getElementById('scanVideo');
+      if (!video) { stopScanner(); return; }
+      video.srcObject = stream;
+      scanTimer = setInterval(function () {
+        if (!video.videoWidth) return;
+        detector.detect(video).then(function (codes) {
+          if (!codes || !codes.length) return;
+          var isbn = (codes[0].rawValue || '').replace(/[^0-9Xx]/g, '');
+          if (isbn.length < 10) return;
+          stopScanner();
+          toast('✓ ISBN erkannt: ' + isbn);
+          $('searchInput').value = isbn;
+          doSearch(isbn);
+        }).catch(function () {});
+      }, 350);
+    }).catch(function () {
+      stopScanner();
+      toast('Kamera-Zugriff abgelehnt — ISBN bitte ins Suchfeld tippen.');
+    });
+  }
+
+  // ───── 🎲 „Was lese ich als Nächstes?" — Cover-Roulette ─────
+  function rollNext() {
+    var books = lib();
+    var pool = books.filter(function (b) { return b.status === 'want'; });
+    if (!pool.length) pool = books.filter(function (b) { return b.status !== 'read'; });
+    if (!pool.length) { toast('Alles gelesen! Hol dir Nachschub unter „Für dich" ✨'); return; }
+    var winner = pool[Math.floor(Math.random() * pool.length)];
+
+    var m = document.createElement('div');
+    m.className = 'roll-modal';
+    m.innerHTML = '<div class="roll-inner"><div class="roll-title">🎲 Dein nächstes Buch…</div>'
+      + '<div class="roll-cover" id="rollCover"></div><div class="roll-name" id="rollName"></div></div>';
+    document.body.appendChild(m);
+    var cov = document.getElementById('rollCover'), nam = document.getElementById('rollName');
+    var i = 0, spins = Math.min(14, pool.length * 3 + 4);
+    var iv = setInterval(function () {
+      var b = (i < spins - 1) ? pool[Math.floor(Math.random() * pool.length)] : winner;
+      cov.innerHTML = b.cover ? '<img src="' + esc(b.cover) + '" alt="" />' : '<div class="cover-fallback" style="width:110px;aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;font-size:30px;">📕</div>';
+      nam.textContent = b.title;
+      i++;
+      if (i >= spins) {
+        clearInterval(iv);
+        cov.classList.add('winner');
+        setTimeout(function () { m.remove(); openDetail(findInLib(winner.id) || winner); }, 1100);
+      }
+    }, i < 6 ? 120 : 180);
+    m.addEventListener('click', function () { clearInterval(iv); m.remove(); });
+  }
+
   // ───── Theme & Einstellungen ─────
+  var sysDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  function themeMode() {
+    var s = loadSettings();
+    return s.themeMode || s.theme || 'dark'; // s.theme = Altbestand aus v1/v2
+  }
   function applySettings() {
     var s = loadSettings();
-    document.documentElement.dataset.theme = s.theme || 'dark';
-    $('themeToggle').textContent = (s.theme || 'dark') === 'dark' ? '🌙' : '☀️';
+    var mode = themeMode();
+    var effective = mode === 'auto' ? ((sysDark && sysDark.matches) ? 'dark' : 'light') : mode;
+    document.documentElement.dataset.theme = effective;
+    $('themeToggle').textContent = mode === 'auto' ? '🌗' : (effective === 'dark' ? '🌙' : '☀️');
     document.documentElement.dataset.reduced = s.reduced ? '1' : '';
     $('setReducedMotion').checked = !!s.reduced;
+    var tm = $('setThemeMode'); if (tm) tm.value = mode;
+    var gi = $('setGoal'); if (gi) gi.value = parseInt(s.goal, 10) || 0;
   }
+  if (sysDark && sysDark.addEventListener) sysDark.addEventListener('change', function () {
+    if (themeMode() === 'auto') applySettings();
+  });
 
   // ───── Init ─────
   function init() {
@@ -736,15 +1113,39 @@
     $('modal').addEventListener('click', function (e) { if (e.target === $('modal')) closeDetail(); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('modal').hidden) closeDetail(); });
 
-    // Theme
+    // Theme: Button wechselt Dunkel → Hell → Auto
     $('themeToggle').addEventListener('click', function () {
       var s = loadSettings();
-      s.theme = (s.theme || 'dark') === 'dark' ? 'light' : 'dark';
+      var order = ['dark', 'light', 'auto'];
+      var next = order[(order.indexOf(themeMode()) + 1) % 3];
+      s.themeMode = next; delete s.theme;
       saveSettings(s); applySettings();
+      toast(next === 'auto' ? '🌗 Theme: automatisch (System)' : next === 'dark' ? '🌙 Dunkles Theme' : '☀️ Helles Papier-Theme');
+    });
+    $('setThemeMode').addEventListener('change', function (e) {
+      var s = loadSettings(); s.themeMode = e.target.value; delete s.theme; saveSettings(s); applySettings();
     });
     $('setReducedMotion').addEventListener('change', function (e) {
       var s = loadSettings(); s.reduced = e.target.checked; saveSettings(s); applySettings();
     });
+    $('setGoal').addEventListener('change', function (e) {
+      var s = loadSettings(); s.goal = Math.max(0, parseInt(e.target.value, 10) || 0); saveSettings(s); applySettings();
+      toast(s.goal ? '🎯 Lese-Ziel: ' + s.goal + ' Bücher pro Jahr' : 'Lese-Ziel deaktiviert');
+      renderHome();
+    });
+
+    // Scanner + Zufallsrad + Tag-Filter
+    $('scanBtn').addEventListener('click', startScanner);
+    $('rollBtn').addEventListener('click', rollNext);
+    $('filterTag').addEventListener('change', renderLib);
+
+    // Goodreads CSV
+    $('setGrImport').addEventListener('click', function () { $('grImportFile').click(); });
+    $('grImportFile').addEventListener('change', function (e) {
+      if (e.target.files && e.target.files[0]) importGoodreads(e.target.files[0]);
+      e.target.value = '';
+    });
+    $('setGrExport').addEventListener('click', exportGoodreadsCsv);
 
     // Einstellungen: Cloud + Daten
     $('cloud-open-btn').addEventListener('click', function () { if (window.BKCloud) window.BKCloud.openModal(); });
