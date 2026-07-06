@@ -48,8 +48,8 @@
     var minY = 70, maxY = Math.max(76, h - size - 96);
     var x = Math.round(minX + Math.random() * (maxX - minX));
     var y = Math.round(minY + Math.random() * (maxY - minY));
-    el.style.left = x + 'px';
-    el.style.top = y + 'px';
+    // Bewegung über transform (GPU) statt left/top (Layout) — sonst ruckelt es
+    el.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0)';
     el.classList.toggle('flip', x > w / 2);
   }
 
