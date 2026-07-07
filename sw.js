@@ -1,5 +1,5 @@
-/* Hon 本 · Bücher Tracker — Service Worker v3.1 */
-const CACHE = 'buecher-v3-1';
+/* Hon 本 · Bücher Tracker — Service Worker v4 */
+const CACHE = 'buecher-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -51,7 +51,27 @@ self.addEventListener('fetch', (e) => {
 
   // API + externe Dienste: Network only (frische Daten, nie cachen)
   if (url.pathname.startsWith('/api/')) return;
-  const externalApi = ['googleapis.com', 'books.google.com', 'openlibrary.org', 'covers.openlibrary.org', 'services.dnb.de', 'portal.dnb.de'];
+
+  // Offline-Cover: Buchcover cache-first in eigenem Cache → Sammlung sieht offline komplett aus
+  const coverHosts = ['books.google.com', 'covers.openlibrary.org', 'portal.dnb.de', 's4.anilist.co', 'cdn.myanimelist.net'];
+  if (coverHosts.some((h) => url.hostname.includes(h))) {
+    e.respondWith(
+      caches.open('buecher-covers-v1').then(async (c) => {
+        const hit = await c.match(req);
+        if (hit) return hit;
+        try {
+          const res = await fetch(req);
+          if (res && (res.ok || res.type === 'opaque')) c.put(req, res.clone()).catch(() => {});
+          return res;
+        } catch (err) {
+          return hit || Response.error();
+        }
+      })
+    );
+    return;
+  }
+
+  const externalApi = ['googleapis.com', 'openlibrary.org', 'services.dnb.de', 'graphql.anilist.co', 'api.jikan.moe'];
   if (externalApi.some((h) => url.hostname.includes(h))) return;
 
   e.respondWith(

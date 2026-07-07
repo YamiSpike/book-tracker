@@ -18,13 +18,33 @@
   function saveBooks(list) {
     try { localStorage.setItem(LS_BOOKS, JSON.stringify(list)); } catch (e) {}
   }
+  // v4: Read-only-Modus für geteilte Sammlungen (?share=…)
+  var sharedData = null;
+
   // aktive Bücher (ohne Lösch-Tombstones, die nur für den Sync existieren)
-  function lib() { return loadBooks().filter(function (b) { return !b.deleted; }); }
+  function lib() {
+    if (sharedData) return sharedData;
+    return loadBooks().filter(function (b) { return !b.deleted; });
+  }
 
   function loadSettings() {
     try { return JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}') || {}; } catch (e) { return {}; }
   }
   function saveSettings(s) { try { localStorage.setItem(LS_SETTINGS, JSON.stringify(s)); } catch (e) {} }
+
+  // ───── v4: Lese-Sessions (Timer) ─────
+  var LS_SESSIONS = 'bk_sessions', LS_ACTIVE = 'bk_active_session', LS_ACH = 'bk_achievements';
+  function loadSessions() {
+    try { var a = JSON.parse(localStorage.getItem(LS_SESSIONS) || '[]'); return Array.isArray(a) ? a : []; }
+    catch (e) { return []; }
+  }
+  function saveSessions(a) { try { localStorage.setItem(LS_SESSIONS, JSON.stringify(a)); } catch (e) {} }
+
+  // Lese-Termine je Buch (für Challenge + Re-Read): readDates = [ts, ...]
+  function readDatesOf(b) {
+    if (Array.isArray(b.readDates) && b.readDates.length) return b.readDates;
+    return b.finishedAt ? [b.finishedAt] : [];
+  }
 
   // ───── Helfer ─────
   function $(id) { return document.getElementById(id); }
@@ -180,6 +200,87 @@
     });
   }
 
+  // ───── v4: Manga-Quellen (AniList + Jikan/MAL — wie in der Otaku-App) ─────
+  function normManga(o) {
+    return {
+      id: o.id, title: o.title, authors: o.authors, cover: o.cover,
+      year: o.year, pages: 0, volumes: o.volumes || 0, chapters: o.chapters || 0,
+      categories: (o.genres || []).map(function (g) { return 'Manga / ' + g; }),
+      desc: o.desc || '', lang: o.lang || '', isbn: '', gRating: o.score || 0, kind: 'manga'
+    };
+  }
+
+  function alSearch(q, maxResults) {
+    var gql = 'query($s:String,$n:Int){Page(perPage:$n){media(search:$s,type:MANGA,sort:SEARCH_MATCH){' +
+      'id title{romaji english} coverImage{large} description(asHtml:false) genres chapters volumes ' +
+      'startDate{year} averageScore staff(perPage:4){edges{role node{name{full}}}}}}}';
+    return fetch('https://graphql.anilist.co', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ query: gql, variables: { s: q, n: Math.min(maxResults || 15, 20) } })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('AniList nicht erreichbar (' + r.status + ')');
+      return r.json();
+    }).then(function (j) {
+      return (((j.data || {}).Page || {}).media || []).map(function (m) {
+        var authors = ((m.staff || {}).edges || [])
+          .filter(function (e) { return /story|art/i.test(e.role || ''); })
+          .map(function (e) { return e.node.name.full; }).slice(0, 2);
+        return normManga({
+          id: 'al-' + m.id,
+          title: (m.title && (m.title.english || m.title.romaji)) || '',
+          authors: authors,
+          cover: (m.coverImage && m.coverImage.large) || '',
+          year: m.startDate && m.startDate.year ? String(m.startDate.year) : '',
+          volumes: m.volumes, chapters: m.chapters,
+          genres: m.genres, desc: m.description || '',
+          score: m.averageScore ? Math.round(m.averageScore / 20 * 10) / 10 : 0
+        });
+      }).filter(function (b) { return b.title; });
+    });
+  }
+
+  function jikanSearch(q, maxResults) {
+    return fetch('https://api.jikan.moe/v4/manga?q=' + encodeURIComponent(q) + '&limit=' + Math.min(maxResults || 15, 20) + '&sfw=true')
+      .then(function (r) {
+        if (!r.ok) throw new Error('Jikan nicht erreichbar (' + r.status + ')');
+        return r.json();
+      }).then(function (j) {
+        return (j.data || []).map(function (m) {
+          return normManga({
+            id: 'mal-' + m.mal_id,
+            title: m.title || '',
+            authors: (m.authors || []).map(function (a) { return a.name.split(', ').reverse().join(' '); }).slice(0, 2),
+            cover: (m.images && m.images.jpg && m.images.jpg.image_url) || '',
+            year: m.published && m.published.from ? String(m.published.from).slice(0, 4) : '',
+            volumes: m.volumes, chapters: m.chapters,
+            genres: (m.genres || []).map(function (g) { return g.name; }),
+            desc: m.synopsis || '',
+            score: m.score ? Math.round(m.score) / 2 : 0
+          });
+        }).filter(function (b) { return b.title; });
+      });
+  }
+
+  function searchMangas(q, maxResults) {
+    return Promise.allSettled([alSearch(q, maxResults), jikanSearch(q, maxResults)]).then(function (rs) {
+      var lists = rs.map(function (r) { return r.status === 'fulfilled' ? r.value : []; });
+      var map = Object.create(null), order = [];
+      lists.forEach(function (list) {
+        list.forEach(function (b) {
+          var k = bookKey(b);
+          if (!map[k]) { map[k] = b; order.push(k); return; }
+          var prev = map[k];
+          if (!prev.cover && b.cover) prev.cover = b.cover;
+          if (!prev.desc && b.desc) prev.desc = b.desc;
+          if (!prev.volumes && b.volumes) prev.volumes = b.volumes;
+        });
+      });
+      var merged = order.map(function (k) { return map[k]; });
+      if (!merged.length) throw new Error('Keine Manga-Quelle erreichbar. Bitte später erneut versuchen.');
+      return merged;
+    });
+  }
+
   // Alle Quellen PARALLEL abfragen und zusammenführen — beste Trefferquote,
   // und der Ausfall einer Quelle (z.B. Google-Tageskontingent) fällt nicht auf.
   // Duplikate: erster Treffer gewinnt, spätere füllen fehlende Felder (Cover/ISBN/Beschreibung) auf.
@@ -233,10 +334,14 @@
     if (status === 'read') {
       if (!(existing && existing.startedAt)) p.startedAt = now;
       if (!(existing && existing.finishedAt)) p.finishedAt = now;
+      var rd = existing ? readDatesOf(existing).slice() : [];
+      if (!rd.length) rd.push((existing && existing.finishedAt) || now);
+      p.readDates = rd;
     }
     return p;
   }
   function upsertBook(b, status) {
+    if (sharedData) { toast('👀 Nur-Lese-Ansicht — Änderungen sind hier deaktiviert.'); return; }
     var all = loadBooks();
     var idx = all.findIndex(function (x) { return x.id === b.id; });
     var now = Date.now();
@@ -251,6 +356,7 @@
     refreshAll();
   }
   function patchBook(id, patch) {
+    if (sharedData) { toast('👀 Nur-Lese-Ansicht — Änderungen sind hier deaktiviert.'); return; }
     var all = loadBooks();
     var idx = all.findIndex(function (x) { return x.id === id; });
     if (idx < 0) return;
@@ -284,8 +390,9 @@
       var pct = Math.min(100, Math.round(own.progress / own.pages * 100));
       prog = '<div class="card-progress" title="Seite ' + own.progress + ' von ' + own.pages + '"><i style="width:' + pct + '%"></i><span>' + pct + '%</span></div>';
     }
+    var kind = b.kind === 'manga' ? '<span class="kind-chip" title="Manga">🎌</span>' : '';
     return '<article class="card" data-id="' + esc(b.id) + '" data-src="' + esc(opts.src || 'lib') + '">'
-      + chip + mark + coverHtml(b)
+      + chip + mark + kind + coverHtml(b)
       + reason
       + '<div class="meta"><div class="title">' + esc(b.title) + '</div>'
       + '<div class="author">' + esc(b.authors.join(', ') || '–') + '</div>' + stars + prog + '</div></article>';
@@ -317,9 +424,13 @@
     // Lese-Challenge: Ring mit Jahresfortschritt
     var goal = parseInt(loadSettings().goal, 10) || 0;
     var yr = new Date().getFullYear();
-    var doneThisYear = read.filter(function (b) {
-      return new Date(b.finishedAt || b.addedAt || 0).getFullYear() === yr;
-    }).length;
+    // Zählt auch Re-Reads: jeder Lese-Abschluss im laufenden Jahr = 1 Punkt
+    var doneThisYear = 0;
+    read.forEach(function (b) {
+      var rd = readDatesOf(b);
+      if (!rd.length && b.addedAt) rd = [b.addedAt];
+      rd.forEach(function (ts) { if (new Date(ts).getFullYear() === yr) doneThisYear++; });
+    });
     var ringHtml = '';
     if (goal > 0) {
       var pct = Math.min(1, doneThisYear / goal);
@@ -370,6 +481,18 @@
     $('homeRecentSection').hidden = recent.length === 0;
     $('homeRecent').innerHTML = recent.map(function (b) { return cardHtml(b, { showStatus: true }); }).join('');
 
+    // v4: Erscheinungs-Radar — Wunschbücher, die erst in der Zukunft erscheinen
+    var radarSec = $('homeRadarSection');
+    if (radarSec) {
+      var upcoming = books.filter(function (b) {
+        return b.status === 'want' && parseInt(b.year, 10) > yr;
+      });
+      radarSec.hidden = upcoming.length === 0;
+      $('homeRadar').innerHTML = upcoming.slice(0, 6).map(function (b) {
+        return cardHtml(b, { showStatus: false, reason: '📅 erscheint ' + esc(b.year), src: 'lib' });
+      }).join('');
+    }
+
     var tipSec = $('homeTipSection');
     if (books.length > 0 && lastReco.length > 0) {
       tipSec.hidden = false;
@@ -385,13 +508,14 @@
 
   // ───── Suche ─────
   var lastSearch = [];
+  var searchMode = 'buch'; // 'buch' | 'manga'
   function doSearch(q) {
     q = (q || '').trim();
     if (!q) return;
     var grid = $('searchGrid');
     $('searchEmpty').hidden = true;
     grid.innerHTML = '<div class="skeleton-grid"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
-    searchBooks(q, 20).then(function (items) {
+    (searchMode === 'manga' ? searchMangas(q, 20) : searchBooks(q, 20)).then(function (items) {
       // Duplikate (gleicher Titel+Autor) zusammenfassen
       var seen = {}, out = [];
       items.forEach(function (b) { var k = bookKey(b); if (!seen[k]) { seen[k] = 1; out.push(b); } });
@@ -433,10 +557,17 @@
     }).join('');
     tsel.style.display = Object.keys(tags).length ? '' : 'none';
 
+    // v4: Live-Suche in der eigenen Sammlung (Titel, Autor·in, Notizen, Zitate, Tags)
+    var q = ($('libSearch') ? $('libSearch').value : '').trim().toLowerCase();
     var out = books.filter(function (b) {
       if (st && b.status !== st) return false;
       if (ge && !(b.categories || []).some(function (c) { return c.split('/')[0].trim() === ge; })) return false;
       if (tg && !(b.tags || []).some(function (t) { return t === tg; })) return false;
+      if (q) {
+        var hay = (b.title + ' ' + (b.authors || []).join(' ') + ' ' + (b.note || '') + ' '
+          + (b.tags || []).join(' ') + ' ' + (b.quotes || []).map(function (x) { return x.text; }).join(' ')).toLowerCase();
+        if (hay.indexOf(q) < 0) return false;
+      }
       return true;
     });
     out.sort(function (a, b) {
@@ -480,6 +611,21 @@
     var queries = [];
     p.auths.forEach(function (a) { queries.push({ q: 'inauthor:"' + a + '"', reason: 'Weil du ' + a + ' liest' }); });
     p.cats.forEach(function (c) { queries.push({ q: 'subject:"' + c + '"', reason: 'Weil du gern „' + c + '" liest' }); });
+    // Manga-Profil: Lieblings-Genres deiner Mangas → AniList-Empfehlungen
+    var mangas = books.filter(function (b) { return b.kind === 'manga'; });
+    if (mangas.length) {
+      var mg = {};
+      mangas.forEach(function (b) {
+        var w = (b.rating || 3);
+        (b.categories || []).forEach(function (c) {
+          var g = (c.split('/')[1] || '').trim();
+          if (g) mg[g] = (mg[g] || 0) + w;
+        });
+      });
+      Object.keys(mg).sort(function (a, b2) { return mg[b2] - mg[a]; }).slice(0, 2).forEach(function (g) {
+        queries.push({ q: g, reason: 'Weil du Mangas („' + g + '") liest', manga: true });
+      });
+    }
     if (!queries.length) {
       // Sammlung ohne Genre-/Autor-Daten → Titel-basiert suchen
       var t = books[0].title.split(' ').slice(0, 3).join(' ');
@@ -487,7 +633,7 @@
     }
 
     return Promise.all(queries.map(function (Q) {
-      return searchBooks(Q.q, 12).then(function (items) {
+      return (Q.manga ? searchMangas(Q.q, 10) : searchBooks(Q.q, 12)).then(function (items) {
         return items.map(function (b) { return { book: b, reason: Q.reason }; });
       }).catch(function () { return []; });
     })).then(function (results) {
@@ -546,12 +692,19 @@
     var rated = books.filter(function (b) { return b.rating > 0; });
     var avg = rated.length ? (rated.reduce(function (s, b) { return s + b.rating; }, 0) / rated.length).toFixed(1) : '–';
 
+    // v4: Lesezeit (Timer-Sessions) + geschätzter Bibliotheks-Wert + Streak
+    var mins = loadSessions().reduce(function (s, x) { return s + (x.minutes || 0); }, 0);
+    var aStats = achStats();
+    var worth = books.length * 12; // Spielerei: Ø ~12 € pro Buch
     $('statsGrid').innerHTML =
       '<div class="stat-card"><b>' + read.length + '</b><span>Bücher gelesen</span></div>'
       + '<div class="stat-card"><b>' + pages.toLocaleString('de-DE') + '</b><span>Seiten gelesen</span></div>'
       + '<div class="stat-card"><b>' + books.filter(function (b) { return b.status === 'reading'; }).length + '</b><span>Lese gerade</span></div>'
       + '<div class="stat-card"><b>' + books.filter(function (b) { return b.status === 'want'; }).length + '</b><span>Will lesen</span></div>'
-      + '<div class="stat-card"><b>' + avg + '</b><span>Ø Bewertung</span></div>';
+      + '<div class="stat-card"><b>' + avg + '</b><span>Ø Bewertung</span></div>'
+      + (mins ? '<div class="stat-card"><b>' + (mins >= 120 ? Math.round(mins / 60) + ' h' : mins + ' min') + '</b><span>Lesezeit (Timer)</span></div>' : '')
+      + (aStats.streak > 1 ? '<div class="stat-card"><b>' + aStats.streak + ' 🔥</b><span>Tage-Streak</span></div>' : '')
+      + '<div class="stat-card"><b>~' + worth.toLocaleString('de-DE') + ' €</b><span>Bibliotheks-Wert</span></div>';
 
     function barBlock(title, counts) {
       var keys = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; }).slice(0, 7);
@@ -573,7 +726,12 @@
       var days = Object.create(null);
       books.forEach(function (b) {
         if (b.addedAt) { var d1 = new Date(b.addedAt).toISOString().slice(0, 10); days[d1] = (days[d1] || 0) + 1; }
-        if (b.finishedAt) { var d2 = new Date(b.finishedAt).toISOString().slice(0, 10); days[d2] = (days[d2] || 0) + 2; }
+        readDatesOf(b).forEach(function (ts) { var d2 = new Date(ts).toISOString().slice(0, 10); days[d2] = (days[d2] || 0) + 2; });
+      });
+      // Timer-Sessions zählen mit: je angefangene 30 Minuten ein Punkt
+      loadSessions().forEach(function (s) {
+        var dk = new Date(s.start).toISOString().slice(0, 10);
+        days[dk] = (days[dk] || 0) + Math.max(1, Math.ceil((s.minutes || 0) / 30));
       });
       var today = new Date(); today.setHours(12, 0, 0, 0);
       var start = new Date(today.getTime() - (26 * 7 - 1) * 86400000);
@@ -616,9 +774,26 @@
       return '<h2 style="font-size:16px;margin-top:22px">📚 Deine Buchreihen</h2>' + rows;
     }
 
+    // v4: Erfolge-Galerie
+    function achHtml() {
+      var unlocked = loadAch();
+      var cells = ACH_DEFS.map(function (d) {
+        var on = !!unlocked[d.id];
+        return '<div class="ach' + (on ? ' on' : '') + '" title="' + esc(d.desc) + '">'
+          + '<span class="ach-ico">' + (on ? d.icon : '🔒') + '</span>'
+          + '<span class="ach-name">' + esc(d.name) + '</span>'
+          + (on ? '<span class="ach-date">' + fmtDate(unlocked[d.id]) + '</span>' : '<span class="ach-date">' + esc(d.desc) + '</span>')
+          + '</div>';
+      }).join('');
+      return '<h2 style="font-size:16px;margin-top:22px">🏆 Erfolge</h2><div class="ach-grid">' + cells + '</div>';
+    }
+
     $('statsBars').innerHTML = books.length
-      ? heatmapHtml() + seriesHtml() + barBlock('📚 Top-Genres', gen) + barBlock('✍️ Top-Autor·innen', aut) + barBlock('🗓️ Hinzugefügt pro Jahr', yrs)
+      ? '<div style="margin-top:14px"><button class="btn-primary" id="yearReviewBtn">📚 Dein Lesejahr ' + new Date().getFullYear() + '</button></div>'
+        + heatmapHtml() + achHtml() + seriesHtml() + barBlock('📚 Top-Genres', gen) + barBlock('✍️ Top-Autor·innen', aut) + barBlock('🗓️ Hinzugefügt pro Jahr', yrs)
       : '<div class="empty"><div class="big">📊</div><p>Noch keine Daten — füge zuerst Bücher hinzu.</p></div>';
+    var yb = document.getElementById('yearReviewBtn');
+    if (yb) yb.addEventListener('click', openYearReview);
   }
 
   // Shop-Suchlinks (Amazon/Thalia haben keine öffentliche API — Suche per ISBN/Titel im Shop)
@@ -654,19 +829,42 @@
     var own = findInLib(b.id);
     var m = $('modal'), inner = $('modalInner');
     var facts = [];
+    if (b.kind === 'manga') {
+      facts.push('🎌 Manga');
+      if (b.volumes) facts.push(b.volumes + ' Bände');
+      if (b.chapters) facts.push(b.chapters + ' Kapitel');
+    }
     if (b.year) facts.push(b.year);
     if (b.pages) facts.push(b.pages + ' Seiten');
-    (b.categories || []).slice(0, 3).forEach(function (c) { facts.push(c.split('/')[0].trim()); });
+    // Manga-Kategorien heißen „Manga / Genre" → Genre zeigen, nicht dreimal „Manga"
+    (b.categories || []).slice(0, 3).forEach(function (c) {
+      var parts = c.split('/');
+      facts.push((b.kind === 'manga' ? parts[parts.length - 1] : parts[0]).trim());
+    });
     if (b.gRating) facts.push('★ ' + b.gRating);
     var ser = seriesOf(b);
     if (ser) facts.push('📚 ' + ser.name + ' · Band ' + ser.num);
     if (own && own.startedAt) facts.push('▶ ' + fmtDate(own.startedAt));
     if (own && own.finishedAt) facts.push('✓ ' + fmtDate(own.finishedAt));
 
-    var statusRow = ['read', 'reading', 'want'].map(function (s) {
+    var statusRow = sharedData ? '' : ['read', 'reading', 'want'].map(function (s) {
       var on = own && own.status === s;
       return '<button class="status-btn' + (on ? ' active ' + s : '') + '" data-status="' + s + '">' + STATUS_LBL[s] + '</button>';
     }).join('');
+    // v4: kontextabhängige Aktionen
+    if (own && own.status === 'reading') {
+      var act = activeSess();
+      statusRow += (act && act.bookId === b.id)
+        ? '<button class="status-btn active read" data-timer="stop">■ Session beenden</button>'
+        : '<button class="status-btn" data-timer="start">▶ Jetzt lesen</button>';
+    }
+    if (own && own.status === 'read') {
+      var n = readDatesOf(own).length;
+      statusRow += '<button class="status-btn" data-reread="1">🔁 Nochmal gelesen' + (n > 1 ? ' (×' + n + ')' : '') + '</button>';
+    }
+    if (own && own.status === 'want') {
+      statusRow += '<button class="status-btn' + (own.wishPrio ? ' active' : '') + '" data-prio="1">' + (own.wishPrio ? '⭐ Hohe Priorität' : '☆ Priorität setzen') + '</button>';
+    }
 
     var stars = '';
     for (var i = 1; i <= 5; i++) {
@@ -715,6 +913,28 @@
       removeBook(b.id);
       toast('Aus der Sammlung entfernt');
       closeDetail();
+    });
+    // v4: Timer / Re-Read / Priorität
+    var ts = inner.querySelector('[data-timer]');
+    if (ts) ts.addEventListener('click', function () {
+      if (ts.dataset.timer === 'stop') stopSession(); else startSession(b.id);
+      openDetail(b);
+    });
+    var rr = inner.querySelector('[data-reread]');
+    if (rr) rr.addEventListener('click', function () {
+      var cur = findInLib(b.id);
+      var rd = readDatesOf(cur).concat([Date.now()]);
+      patchBook(b.id, { readDates: rd, finishedAt: Date.now(), progress: 0 });
+      toast('🔁 Nochmal gelesen — zählt für die Challenge!');
+      checkAchievements();
+      openDetail(b);
+    });
+    var pr = inner.querySelector('[data-prio]');
+    if (pr) pr.addEventListener('click', function () {
+      var cur = findInLib(b.id);
+      patchBook(b.id, { wishPrio: !(cur && cur.wishPrio) });
+      toast(cur && cur.wishPrio ? 'Priorität entfernt' : '⭐ Hohe Priorität — das Zufallsrad bevorzugt dieses Buch');
+      openDetail(b);
     });
     inner.querySelectorAll('.star').forEach(function (st) {
       st.addEventListener('click', function () {
@@ -1033,7 +1253,10 @@
     var pool = books.filter(function (b) { return b.status === 'want'; });
     if (!pool.length) pool = books.filter(function (b) { return b.status !== 'read'; });
     if (!pool.length) { toast('Alles gelesen! Hol dir Nachschub unter „Für dich" ✨'); return; }
-    var winner = pool[Math.floor(Math.random() * pool.length)];
+    // ⭐ Priorisierte Wunschbücher bekommen 3 Lose statt 1
+    var tickets = [];
+    pool.forEach(function (b) { for (var i = 0; i < (b.wishPrio ? 3 : 1); i++) tickets.push(b); });
+    var winner = tickets[Math.floor(Math.random() * tickets.length)];
 
     var m = document.createElement('div');
     m.className = 'roll-modal';
@@ -1054,6 +1277,276 @@
       }
     }, i < 6 ? 120 : 180);
     m.addEventListener('click', function () { clearInterval(iv); m.remove(); });
+  }
+
+  // ───── v4: Lese-Timer ─────
+  var timerTick = null;
+  function activeSess() {
+    try { return JSON.parse(localStorage.getItem(LS_ACTIVE) || 'null'); } catch (e) { return null; }
+  }
+  function startSession(bookId) {
+    try { localStorage.setItem(LS_ACTIVE, JSON.stringify({ bookId: bookId, start: Date.now() })); } catch (e) {}
+    renderTimerBar();
+    toast('⏱️ Lese-Session gestartet — viel Spaß!');
+  }
+  function stopSession() {
+    var s = activeSess();
+    if (!s) return;
+    try { localStorage.removeItem(LS_ACTIVE); } catch (e) {}
+    var mins = Math.round((Date.now() - s.start) / 60000);
+    if (mins >= 1) {
+      var ss = loadSessions();
+      ss.push({ bookId: s.bookId, start: s.start, end: Date.now(), minutes: mins });
+      saveSessions(ss);
+      var b = findInLib(s.bookId);
+      toast('📖 ' + mins + ' Minuten' + (b ? ' in „' + b.title + '"' : '') + ' gelesen — stark! 🦉');
+      checkAchievements();
+    } else {
+      toast('Session unter 1 Minute — nicht gezählt.');
+    }
+    renderTimerBar();
+    refreshAll();
+  }
+  function fmtElapsed(ms) {
+    var t = Math.floor(ms / 1000), m = Math.floor(t / 60), s2 = t % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s2 < 10 ? '0' : '') + s2;
+  }
+  function renderTimerBar() {
+    var s = activeSess();
+    var bar = document.getElementById('timerBar');
+    clearInterval(timerTick); timerTick = null;
+    if (!s) { if (bar) bar.remove(); return; }
+    var b = findInLib(s.bookId);
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'timerBar';
+      bar.className = 'timer-bar';
+      document.body.appendChild(bar);
+    }
+    function draw() {
+      bar.innerHTML = '<span class="timer-ico">📖</span>'
+        + '<span class="timer-title">' + esc(b ? b.title : 'Lesen') + '</span>'
+        + '<span class="timer-time" id="timerTime">' + fmtElapsed(Date.now() - s.start) + '</span>'
+        + '<button class="timer-stop" id="timerStop">■ Beenden</button>';
+      bar.querySelector('#timerStop').addEventListener('click', stopSession);
+    }
+    draw();
+    timerTick = setInterval(function () {
+      var el = document.getElementById('timerTime');
+      if (el) el.textContent = fmtElapsed(Date.now() - s.start);
+    }, 1000);
+  }
+
+  // ───── v4: Erfolge / Abzeichen ─────
+  var ACH_DEFS = [
+    { id: 'b1', icon: '📕', name: 'Erstes Buch', desc: 'Dein erstes Buch gelesen' },
+    { id: 'b10', icon: '📗', name: 'Bücherwurm', desc: '10 Bücher gelesen' },
+    { id: 'b25', icon: '📘', name: 'Leseratte', desc: '25 Bücher gelesen' },
+    { id: 'b50', icon: '📚', name: 'Bibliothekar·in', desc: '50 Bücher gelesen' },
+    { id: 'p1k', icon: '📄', name: 'Seitenzähler', desc: '1.000 Seiten gelesen' },
+    { id: 'p5k', icon: '🗞️', name: 'Vielleser·in', desc: '5.000 Seiten gelesen' },
+    { id: 'p10k', icon: '📜', name: 'Seiten-Marathon', desc: '10.000 Seiten gelesen' },
+    { id: 'g5', icon: '🎭', name: 'Genre-Entdecker·in', desc: '5 verschiedene Genres' },
+    { id: 'serie', icon: '🏅', name: 'Serien-Meister·in', desc: 'Eine Reihe (ab 3 Bänden) lückenlos' },
+    { id: 'q10', icon: '✍️', name: 'Zitate-Sammler·in', desc: '10 Zitate gespeichert' },
+    { id: 'streak7', icon: '🔥', name: '7-Tage-Streak', desc: '7 Tage in Folge Lese-Aktivität' },
+    { id: 'goal', icon: '🎯', name: 'Challenge geschafft', desc: 'Jahres-Leseziel erreicht' }
+  ];
+  function achStats() {
+    var books = lib();
+    var read = books.filter(function (b) { return b.status === 'read'; });
+    var pages = read.reduce(function (s, b) { return s + (b.pages || 0); }, 0);
+    var genres = {};
+    read.forEach(function (b) { (b.categories || []).forEach(function (c) { genres[c.split('/')[0].trim()] = 1; }); });
+    var quotes = books.reduce(function (s, b) { return s + (b.quotes || []).length; }, 0);
+    // lückenlose Reihe ab 3 Bänden?
+    var groups = {};
+    books.forEach(function (b) {
+      var s = seriesOf(b); if (!s) return;
+      var k = s.name.toLowerCase();
+      (groups[k] = groups[k] || []).push(s.num);
+    });
+    var fullSeries = Object.keys(groups).some(function (k) {
+      var nums = groups[k]; var max = Math.max.apply(null, nums);
+      if (max < 3) return false;
+      for (var n = 1; n <= max; n++) if (nums.indexOf(n) < 0) return false;
+      return true;
+    });
+    // Streak: aufeinanderfolgende Tage mit Aktivität (Session, Lese-Abschluss oder Hinzufügen)
+    var daySet = {};
+    loadSessions().forEach(function (s) { daySet[new Date(s.start).toDateString()] = 1; });
+    books.forEach(function (b) {
+      if (b.addedAt) daySet[new Date(b.addedAt).toDateString()] = 1;
+      readDatesOf(b).forEach(function (ts) { daySet[new Date(ts).toDateString()] = 1; });
+    });
+    var streak = 0, d = new Date();
+    if (!daySet[d.toDateString()]) d = new Date(d.getTime() - 86400000); // gestern zählt als Start
+    while (daySet[d.toDateString()]) { streak++; d = new Date(d.getTime() - 86400000); }
+    var goal = parseInt(loadSettings().goal, 10) || 0;
+    var yr = new Date().getFullYear(), done = 0;
+    read.forEach(function (b) { readDatesOf(b).forEach(function (ts) { if (new Date(ts).getFullYear() === yr) done++; }); });
+    return { readCount: read.length, pages: pages, genres: Object.keys(genres).length, quotes: quotes, fullSeries: fullSeries, streak: streak, goalDone: goal > 0 && done >= goal };
+  }
+  function achCheck(id, s) {
+    switch (id) {
+      case 'b1': return s.readCount >= 1;   case 'b10': return s.readCount >= 10;
+      case 'b25': return s.readCount >= 25; case 'b50': return s.readCount >= 50;
+      case 'p1k': return s.pages >= 1000;   case 'p5k': return s.pages >= 5000;
+      case 'p10k': return s.pages >= 10000; case 'g5': return s.genres >= 5;
+      case 'serie': return s.fullSeries;    case 'q10': return s.quotes >= 10;
+      case 'streak7': return s.streak >= 7; case 'goal': return s.goalDone;
+      default: return false;
+    }
+  }
+  function loadAch() { try { return JSON.parse(localStorage.getItem(LS_ACH) || '{}') || {}; } catch (e) { return {}; } }
+  function checkAchievements() {
+    var unlocked = loadAch(), s = achStats(), fresh = [];
+    ACH_DEFS.forEach(function (d) {
+      if (!unlocked[d.id] && achCheck(d.id, s)) { unlocked[d.id] = Date.now(); fresh.push(d); }
+    });
+    if (fresh.length) {
+      try { localStorage.setItem(LS_ACH, JSON.stringify(unlocked)); } catch (e) {}
+      toast('🏆 Abzeichen freigeschaltet: ' + fresh.map(function (d) { return d.icon + ' ' + d.name; }).join(' · '));
+    }
+    return unlocked;
+  }
+
+  // ───── v4: Jahresrückblick ─────
+  function openYearReview() {
+    var yr = new Date().getFullYear();
+    var books = lib(), read = books.filter(function (b) {
+      return b.status === 'read' && readDatesOf(b).some(function (ts) { return new Date(ts).getFullYear() === yr; });
+    });
+    var pages = read.reduce(function (s, b) { return s + (b.pages || 0); }, 0);
+    var minutes = loadSessions().filter(function (s) { return new Date(s.start).getFullYear() === yr; })
+      .reduce(function (s, x) { return s + x.minutes; }, 0);
+    var best = read.slice().sort(function (a, b) { return (b.rating || 0) - (a.rating || 0); })[0];
+    var gen = {};
+    read.forEach(function (b) { (b.categories || []).forEach(function (c) { var g = c.split('/')[0].trim(); if (g) gen[g] = (gen[g] || 0) + 1; }); });
+    var topGenre = Object.keys(gen).sort(function (a, b) { return gen[b] - gen[a]; })[0] || '–';
+    var streak = achStats().streak;
+
+    var m = document.createElement('div');
+    m.className = 'year-modal';
+    m.innerHTML = '<div class="year-card" id="yearCard">'
+      + '<div class="year-head">📚 Dein Lesejahr ' + yr + '</div>'
+      + '<div class="year-rows">'
+      + '<div class="year-row"><b>' + read.length + '</b><span>Bücher gelesen</span></div>'
+      + '<div class="year-row"><b>' + pages.toLocaleString('de-DE') + '</b><span>Seiten</span></div>'
+      + (minutes ? '<div class="year-row"><b>' + Math.round(minutes / 60) + ' h</b><span>Lesezeit (Timer)</span></div>' : '')
+      + '<div class="year-row"><b>' + esc(topGenre) + '</b><span>Top-Genre</span></div>'
+      + (streak > 1 ? '<div class="year-row"><b>' + streak + ' Tage</b><span>aktueller Streak</span></div>' : '')
+      + (best ? '<div class="year-best">⭐ Dein Highlight: <b>„' + esc(best.title) + '"</b>' + (best.authors[0] ? ' von ' + esc(best.authors[0]) : '') + '</div>' : '')
+      + '</div>'
+      + '<div class="year-foot">Hon 本 · Bücher Tracker</div>'
+      + '<div class="year-btns"><button class="btn-primary" id="yearImgBtn">🖼️ Als Bild speichern</button>'
+      + '<button class="btn-ghost" id="yearCloseBtn">Schließen</button></div></div>';
+    document.body.appendChild(m);
+    m.addEventListener('click', function (e) { if (e.target === m) m.remove(); });
+    m.querySelector('#yearCloseBtn').addEventListener('click', function () { m.remove(); });
+    m.querySelector('#yearImgBtn').addEventListener('click', function () {
+      var c = document.createElement('canvas');
+      c.width = 800; c.height = 1000;
+      var x = c.getContext('2d');
+      var grad = x.createLinearGradient(0, 0, 800, 1000);
+      grad.addColorStop(0, '#2a1f16'); grad.addColorStop(1, '#120c08');
+      x.fillStyle = grad; x.fillRect(0, 0, 800, 1000);
+      x.strokeStyle = 'rgba(245,201,107,.4)'; x.lineWidth = 3; x.strokeRect(24, 24, 752, 952);
+      x.fillStyle = '#f5c96b'; x.font = 'bold 52px Georgia, serif'; x.textAlign = 'center';
+      x.fillText('📚 Mein Lesejahr ' + yr, 400, 130);
+      x.font = 'bold 84px Georgia, serif'; x.fillStyle = '#fdf6e3';
+      x.fillText(String(read.length), 400, 300);
+      x.font = '26px system-ui, sans-serif'; x.fillStyle = '#b8a892';
+      x.fillText('Bücher gelesen', 400, 345);
+      x.font = 'bold 56px Georgia, serif'; x.fillStyle = '#f5c96b';
+      x.fillText(pages.toLocaleString('de-DE') + ' Seiten', 400, 470);
+      if (minutes) { x.font = '30px system-ui, sans-serif'; x.fillStyle = '#b8a892'; x.fillText('⏱️ ' + Math.round(minutes / 60) + ' Stunden Lesezeit', 400, 540); }
+      x.font = '30px system-ui, sans-serif'; x.fillStyle = '#b8a892';
+      x.fillText('Top-Genre: ' + topGenre, 400, 610);
+      if (best) {
+        x.fillStyle = '#f5c96b'; x.font = 'bold 30px Georgia, serif';
+        var t = '⭐ „' + best.title + '"';
+        if (t.length > 42) t = t.slice(0, 40) + '…"';
+        x.fillText(t, 400, 720);
+      }
+      x.font = '22px system-ui, sans-serif'; x.fillStyle = '#82715c';
+      x.fillText('Hon 本 · Bücher Tracker', 400, 930);
+      var a = document.createElement('a');
+      a.href = c.toDataURL('image/png');
+      a.download = 'lesejahr-' + yr + '.png';
+      a.click();
+      toast('Bild gespeichert 🖼️');
+    });
+  }
+
+  // ───── v4: Sammlung teilen (Read-only-Link) ─────
+  function createShareLink() {
+    var t = null;
+    try { t = localStorage.getItem('bk_cloud_token'); } catch (e) {}
+    if (!t) { toast('Bitte zuerst beim Cloud-Sync anmelden (☁️ unter Einstellungen).'); return; }
+    var books = lib();
+    if (!books.length) { toast('Deine Sammlung ist noch leer.'); return; }
+    toast('Erstelle Teilen-Link…');
+    fetch('/api/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
+      body: JSON.stringify({ books: books })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || 'Teilen fehlgeschlagen.');
+        return j;
+      });
+    }).then(function (j) {
+      var url = location.origin + location.pathname + '?share=' + j.id;
+      function fallback() { window.prompt('Dein Teilen-Link (30 Tage gültig) — kopieren mit Strg/Cmd+C:', url); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () { toast('🔗 Link kopiert! 30 Tage gültig, ohne deine Notizen.'); }, fallback);
+      } else fallback();
+    }).catch(function (e) { toast(e.message); });
+  }
+
+  function enterSharedMode(id) {
+    fetch('/api/share?id=' + encodeURIComponent(id)).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || 'Link ungültig.');
+        return j;
+      });
+    }).then(function (j) {
+      sharedData = (j.books || []).map(function (b) { return Object.assign({}, b, { note: '', quotes: [], tags: [] }); });
+      var banner = document.createElement('div');
+      banner.className = 'share-banner';
+      banner.innerHTML = '👀 Geteilte Sammlung von <b>' + esc(j.owner || 'unbekannt') + '</b> — schreibgeschützt · '
+        + '<a href="' + location.pathname + '">Zu meiner eigenen Bibliothek</a>';
+      document.querySelector('.topbar').insertAdjacentElement('afterend', banner);
+      switchTab('sammlung');
+      refreshAll();
+    }).catch(function (e) {
+      toast(e.message);
+      try { history.replaceState(null, '', location.pathname); } catch (er) {}
+    });
+  }
+
+  // ───── v4: Lese-Erinnerung (lokale Benachrichtigung) ─────
+  function reminderDue() {
+    var s = loadSettings();
+    if (!s.reminder || !('Notification' in window) || Notification.permission !== 'granted') return false;
+    var hhmm = s.reminderTime || '19:00';
+    var now = new Date();
+    var target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(hhmm.slice(0, 2), 10) || 19, parseInt(hhmm.slice(3), 10) || 0);
+    var last = '';
+    try { last = localStorage.getItem('bk_last_reminder') || ''; } catch (e) {}
+    return now >= target && last !== now.toDateString();
+  }
+  function fireReminder() {
+    if (!reminderDue()) return;
+    try { localStorage.setItem('bk_last_reminder', new Date().toDateString()); } catch (e) {}
+    var reading = lib().filter(function (b) { return b.status === 'reading'; })[0];
+    try {
+      new Notification('Hon 本 · Bücher Tracker', {
+        body: reading ? ('Zeit für ein Kapitel in „' + reading.title + '"! 📖') : 'Zeit für dein tägliches Kapitel! 📖',
+        icon: 'icons/icon-192.png'
+      });
+    } catch (e) {}
   }
 
   // ───── Theme & Einstellungen ─────
@@ -1099,6 +1592,30 @@
       doSearch(c.dataset.q);
     });
 
+    // v4: Suchmodus Bücher ↔ Mangas (Quellen + Schnellfilter wechseln mit)
+    var CHIP_SETS = {
+      buch: [['subject:fiction bestseller', 'Romane'], ['subject:fantasy', 'Fantasy'], ['subject:thriller', 'Thriller'],
+        ['subject:science fiction', 'Sci-Fi'], ['subject:biography', 'Biografien'], ['subject:history', 'Geschichte'], ['subject:self-help', 'Ratgeber']],
+      manga: [['One Piece', 'One Piece'], ['action', 'Action'], ['romance', 'Romance'], ['fantasy', 'Fantasy'],
+        ['comedy', 'Comedy'], ['slice of life', 'Slice of Life'], ['horror', 'Horror']]
+    };
+    $('searchModeRow').addEventListener('click', function (e) {
+      var mc = e.target.closest('.mode-chip'); if (!mc || mc.dataset.mode === searchMode) return;
+      searchMode = mc.dataset.mode;
+      document.querySelectorAll('#searchModeRow .mode-chip').forEach(function (x) { x.classList.toggle('active', x === mc); });
+      $('searchSub').textContent = searchMode === 'manga'
+        ? 'Titel oder Genre — 2 Quellen parallel: AniList · MyAnimeList (Jikan)'
+        : 'Titel, Autor·in oder ISBN — 3 Quellen parallel: Google Books · Open Library · Deutsche Nationalbibliothek';
+      $('searchInput').placeholder = searchMode === 'manga' ? 'z. B. „One Piece" oder „Junji Ito"…' : 'z. B. „Der Herr der Ringe" oder „Haruki Murakami"…';
+      $('scanBtn').style.display = searchMode === 'manga' ? 'none' : '';
+      $('quickChips').innerHTML = CHIP_SETS[searchMode].map(function (c) {
+        return '<button class="chip" data-q="' + esc(c[0]) + '">' + esc(c[1]) + '</button>';
+      }).join('');
+      $('searchGrid').innerHTML = '';
+      $('searchEmpty').hidden = false;
+      if ($('searchInput').value.trim()) doSearch($('searchInput').value);
+    });
+
     // Sammlung: Filter
     ['filterStatus', 'filterGenre', 'sortLib'].forEach(function (id) {
       $(id).addEventListener('change', renderLib);
@@ -1134,10 +1651,45 @@
       renderHome();
     });
 
-    // Scanner + Zufallsrad + Tag-Filter
+    // Scanner + Zufallsrad + Tag-Filter + Sammlungs-Suche
     $('scanBtn').addEventListener('click', startScanner);
     $('rollBtn').addEventListener('click', rollNext);
     $('filterTag').addEventListener('change', renderLib);
+    $('libSearch').addEventListener('input', renderLib);
+
+    // v4: laufende Lese-Session wiederherstellen + Erfolge prüfen
+    renderTimerBar();
+    setTimeout(checkAchievements, 1500);
+
+    // v4: Sammlung teilen
+    $('setShare').addEventListener('click', createShareLink);
+
+    // v4: Lese-Erinnerung
+    var sR = loadSettings();
+    $('setReminder').checked = !!sR.reminder;
+    if (sR.reminderTime) $('setReminderTime').value = sR.reminderTime;
+    $('setReminder').addEventListener('change', function (e) {
+      var s = loadSettings();
+      if (e.target.checked && 'Notification' in window && Notification.permission !== 'granted') {
+        Notification.requestPermission().then(function (p) {
+          if (p !== 'granted') { e.target.checked = false; toast('Benachrichtigungen wurden nicht erlaubt.'); return; }
+          s.reminder = true; saveSettings(s); toast('🔔 Lese-Erinnerung aktiv (' + ($('setReminderTime').value || '19:00') + ' Uhr)');
+        });
+      } else {
+        s.reminder = e.target.checked; saveSettings(s);
+        toast(s.reminder ? '🔔 Lese-Erinnerung aktiv' : 'Erinnerung aus');
+      }
+    });
+    $('setReminderTime').addEventListener('change', function (e) {
+      var s = loadSettings(); s.reminderTime = e.target.value || '19:00'; saveSettings(s);
+    });
+    setInterval(fireReminder, 60000);
+    setTimeout(fireReminder, 4000);
+
+    // v4: Geteilte Sammlung öffnen (?share=…)
+    var shareId = null;
+    try { shareId = new URLSearchParams(location.search).get('share'); } catch (e) {}
+    if (shareId) enterSharedMode(shareId);
 
     // Goodreads CSV
     $('setGrImport').addEventListener('click', function () { $('grImportFile').click(); });

@@ -4,7 +4,7 @@
    der NUTZER über einen dezenten Banner — ein Loop ist per Konstruktion unmöglich. */
 (function () {
   'use strict';
-  var APP_VERSION = 'v3.1'; // bei jedem Release zusammen mit sw.js-CACHE + version.json bumpen
+  var APP_VERSION = 'v4'; // bei jedem Release zusammen mit sw.js-CACHE + version.json bumpen
 
   function showUpdateBanner(newV) {
     try {
