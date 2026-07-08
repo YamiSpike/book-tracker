@@ -102,6 +102,7 @@
       desc: vi.description || '',
       lang: vi.language || '',
       isbn: isbn,
+      publisher: vi.publisher || '',
       gRating: vi.averageRating || 0
     };
   }
@@ -200,14 +201,40 @@
     });
   }
 
-  // ───── v4: Manga-Quellen (AniList + Jikan/MAL — wie in der Otaku-App) ─────
+  // ───── v4/v5: Manga-Quellen (AniList + Jikan/MAL + deutsche Verlage via Google Books) ─────
   function normManga(o) {
     return {
       id: o.id, title: o.title, authors: o.authors, cover: o.cover,
       year: o.year, pages: 0, volumes: o.volumes || 0, chapters: o.chapters || 0,
       categories: (o.genres || []).map(function (g) { return 'Manga / ' + g; }),
-      desc: o.desc || '', lang: o.lang || '', isbn: '', gRating: o.score || 0, kind: 'manga'
+      desc: o.desc || '', lang: o.lang || '', isbn: o.isbn || '', publisher: o.publisher || '',
+      gRating: o.score || 0, kind: 'manga'
     };
+  }
+
+  // Deutsche Manga-Verlagsausgaben über Google Books: liefern ISBN (→ scannbar), Verlag & Cover.
+  // Genau die „Verlagssammlung": Carlsen, Egmont, KAZÉ/Crunchyroll, altraverse, TOKYOPOP, Panini …
+  var DE_MANGA_VERLAGE = /carlsen|egmont|kaz[eé]|crunchyroll|altraverse|tokyopop|panini|manga\s*cult|hayabusa|reprodukt|dani ?books|planet\s*manga/i;
+  function gbMangaSearch(q, maxResults) {
+    var url = GB + '?q=' + encodeURIComponent(q + ' manga') + '&maxResults=' + (maxResults || 20)
+      + '&printType=books&langRestrict=de';
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error('Google Books nicht erreichbar (' + r.status + ')');
+      return r.json();
+    }).then(function (j) {
+      return (j.items || []).map(normVolume).filter(function (b) {
+        // Nur echte Manga-Verlagsausgaben (Verlag passt ODER Kategorie „Comics")
+        var cat = (b.categories || []).join(' ');
+        return b.title && (DE_MANGA_VERLAGE.test(b.publisher || '') || /comic|graphic novel|manga/i.test(cat));
+      }).map(function (b) {
+        return normManga({
+          id: b.id, title: b.title, authors: b.authors, cover: b.cover,
+          year: b.year, isbn: b.isbn, publisher: b.publisher,
+          genres: (b.categories || []).map(function (c) { return c.split('/')[0].trim(); }),
+          desc: b.desc, lang: 'de', score: b.gRating
+        });
+      });
+    });
   }
 
   function alSearch(q, maxResults) {
@@ -262,7 +289,8 @@
   }
 
   function searchMangas(q, maxResults) {
-    return Promise.allSettled([alSearch(q, maxResults), jikanSearch(q, maxResults)]).then(function (rs) {
+    // AniList + Jikan (Metadaten/Genres/Score) + Google Books DE (Verlag + ISBN der deutschen Ausgabe)
+    return Promise.allSettled([alSearch(q, maxResults), jikanSearch(q, maxResults), gbMangaSearch(q, 15)]).then(function (rs) {
       var lists = rs.map(function (r) { return r.status === 'fulfilled' ? r.value : []; });
       var map = Object.create(null), order = [];
       lists.forEach(function (list) {
@@ -273,9 +301,14 @@
           if (!prev.cover && b.cover) prev.cover = b.cover;
           if (!prev.desc && b.desc) prev.desc = b.desc;
           if (!prev.volumes && b.volumes) prev.volumes = b.volumes;
+          // Verlag + ISBN der deutschen Ausgabe in den Haupttreffer übernehmen
+          if (!prev.isbn && b.isbn) prev.isbn = b.isbn;
+          if (!prev.publisher && b.publisher) prev.publisher = b.publisher;
         });
       });
       var merged = order.map(function (k) { return map[k]; });
+      // Einträge mit Cover zuerst
+      merged.sort(function (a, b) { return (b.cover ? 1 : 0) - (a.cover ? 1 : 0); });
       if (!merged.length) throw new Error('Keine Manga-Quelle erreichbar. Bitte später erneut versuchen.');
       return merged;
     });
@@ -539,6 +572,22 @@
     var books = lib();
     $('libBadge').textContent = books.length;
     var st = $('filterStatus').value, ge = $('filterGenre').value, tg = $('filterTag').value, sort = $('sortLib').value;
+    var kd = $('filterKind') ? $('filterKind').value : '';
+    var vl = $('filterPublisher') ? $('filterPublisher').value : '';
+
+    // Verlags-Filter-Optionen (v5)
+    var pubs = {};
+    books.forEach(function (b) { if (b.publisher) pubs[b.publisher] = 1; });
+    var psel = $('filterPublisher'), pcur = psel ? psel.value : '';
+    if (psel) {
+      psel.innerHTML = '<option value="">Alle Verlage</option>' + Object.keys(pubs).sort().map(function (p) {
+        return '<option value="' + esc(p) + '"' + (p === pcur ? ' selected' : '') + '>🏢 ' + esc(p) + '</option>';
+      }).join('');
+      psel.style.display = Object.keys(pubs).length ? '' : 'none';
+    }
+    // Typ-Filter nur zeigen, wenn Mangas dabei sind
+    var hasManga = books.some(function (b) { return b.kind === 'manga'; });
+    if ($('filterKind')) $('filterKind').style.display = hasManga ? '' : 'none';
 
     // Genre-Filter-Optionen aktuell halten
     var genres = {};
@@ -563,8 +612,12 @@
       if (st && b.status !== st) return false;
       if (ge && !(b.categories || []).some(function (c) { return c.split('/')[0].trim() === ge; })) return false;
       if (tg && !(b.tags || []).some(function (t) { return t === tg; })) return false;
+      if (kd === 'manga' && b.kind !== 'manga') return false;
+      if (kd === 'buch' && b.kind === 'manga') return false;
+      if (vl && b.publisher !== vl) return false;
       if (q) {
         var hay = (b.title + ' ' + (b.authors || []).join(' ') + ' ' + (b.note || '') + ' '
+          + (b.publisher || '') + ' '
           + (b.tags || []).join(' ') + ' ' + (b.quotes || []).map(function (x) { return x.text; }).join(' ')).toLowerCase();
         if (hay.indexOf(q) < 0) return false;
       }
@@ -834,6 +887,7 @@
       if (b.volumes) facts.push(b.volumes + ' Bände');
       if (b.chapters) facts.push(b.chapters + ' Kapitel');
     }
+    if (b.publisher) facts.push('🏢 ' + b.publisher);
     if (b.year) facts.push(b.year);
     if (b.pages) facts.push(b.pages + ' Seiten');
     // Manga-Kategorien heißen „Manga / Genre" → Genre zeigen, nicht dreimal „Manga"
@@ -1191,59 +1245,125 @@
     toast('CSV-Export erstellt ✓');
   }
 
-  // ───── ISBN-Barcode-Scanner (BarcodeDetector-API, Chrome/Edge/Android) ─────
-  var scanStream = null, scanTimer = null;
+  // ───── ISBN-Barcode-Scanner ─────
+  // Kette: nativer BarcodeDetector (Android/Chrome, schnell) → ZXing-Fallback (iPhone/iPad/Safari) → manuell.
+  var scanStream = null, scanTimer = null, zxingReader = null, zxingLoading = null;
   function stopScanner() {
     clearInterval(scanTimer); scanTimer = null;
+    if (zxingReader) { try { zxingReader.reset(); } catch (e) {} zxingReader = null; }
     if (scanStream) { scanStream.getTracks().forEach(function (t) { t.stop(); }); scanStream = null; }
     var m = document.getElementById('scanModal');
     if (m) m.remove();
   }
-  function startScanner() {
-    if (!('BarcodeDetector' in window)) {
-      toast('📷 Dein Browser kann leider keine Barcodes scannen (iOS Safari) — tippe die ISBN einfach ins Suchfeld.');
-      $('searchInput').focus();
-      return;
+
+  // Gescannte ISBN weiterverarbeiten. ISBN funktioniert über Google Books —
+  // findet sowohl Bücher als auch deutsche Manga-Verlagsausgaben. Ergebnis in den aktiven Modus einsortieren.
+  function onIsbnScanned(isbn) {
+    stopScanner();
+    toast('✓ ISBN erkannt: ' + isbn);
+    if (searchMode === 'manga') {
+      // Im Manga-Modus: ISBN via Google Books (deutsche Verlagsausgabe) direkt auflösen und als Manga zeigen
+      $('searchInput').value = isbn;
+      $('searchEmpty').hidden = true;
+      $('searchGrid').innerHTML = '<div class="skeleton-grid"><div class="skeleton"></div><div class="skeleton"></div></div>';
+      gbSearch('isbn:' + isbn, 5).then(function (items) {
+        var out = items.map(function (b) { return Object.assign({}, b, { kind: 'manga', volumes: 0, chapters: 0 }); });
+        if (!out.length) throw new Error('nichts');
+        lastSearch = out;
+        $('searchGrid').innerHTML = out.map(function (b) { return cardHtml(b, { src: 'search' }); }).join('');
+        openDetail(out[0]);
+      }).catch(function () { doSearch(isbn); });
+    } else {
+      $('searchInput').value = isbn;
+      doSearch(isbn);
     }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      toast('Keine Kamera verfügbar — ISBN bitte ins Suchfeld tippen.');
-      return;
-    }
+  }
+
+  function buildScanUi(hintExtra) {
     var m = document.createElement('div');
     m.id = 'scanModal';
     m.className = 'scan-modal';
     m.innerHTML = '<div class="scan-inner"><video id="scanVideo" playsinline autoplay muted></video>'
       + '<div class="scan-frame"></div>'
-      + '<p class="scan-hint">Barcode (ISBN) auf der Buchrückseite in den Rahmen halten</p>'
+      + '<p class="scan-hint">Barcode (ISBN) auf der Rückseite in den Rahmen halten' + (hintExtra || '') + '</p>'
+      + '<div class="scan-manual"><input id="scanManualInput" type="text" inputmode="numeric" placeholder="…oder ISBN eintippen" />'
+      + '<button class="btn-primary" id="scanManualGo">OK</button></div>'
       + '<button class="btn-ghost" id="scanCancel">Abbrechen</button></div>';
     document.body.appendChild(m);
     document.getElementById('scanCancel').addEventListener('click', stopScanner);
     m.addEventListener('click', function (e) { if (e.target === m) stopScanner(); });
+    document.getElementById('scanManualGo').addEventListener('click', function () {
+      var v = (document.getElementById('scanManualInput').value || '').replace(/[^0-9Xx]/g, '');
+      if (v.length >= 10) onIsbnScanned(v); else toast('Bitte eine gültige ISBN eingeben (10 oder 13 Stellen).');
+    });
+    return m;
+  }
 
-    var detector;
-    try { detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8'] }); }
-    catch (e) { stopScanner(); toast('Barcode-Scanner konnte nicht starten.'); return; }
+  function loadZxing() {
+    if (window.ZXing) return Promise.resolve(window.ZXing);
+    if (zxingLoading) return zxingLoading;
+    zxingLoading = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = 'js/vendor/zxing.min.js';
+      s.onload = function () { window.ZXing ? resolve(window.ZXing) : reject(new Error('ZXing nicht geladen')); };
+      s.onerror = function () { reject(new Error('ZXing nicht geladen')); };
+      document.head.appendChild(s);
+    });
+    return zxingLoading;
+  }
 
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (stream) {
-      scanStream = stream;
+  function startScanner() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('Keine Kamera verfügbar — ISBN bitte ins Suchfeld tippen.');
+      $('searchInput').focus();
+      return;
+    }
+
+    // Weg 1: nativer BarcodeDetector (Android/Chrome/Edge)
+    if ('BarcodeDetector' in window) {
+      var detector;
+      try { detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8'] }); }
+      catch (e) { detector = null; }
+      if (detector) {
+        buildScanUi('');
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (stream) {
+          scanStream = stream;
+          var video = document.getElementById('scanVideo');
+          if (!video) { stopScanner(); return; }
+          video.srcObject = stream;
+          scanTimer = setInterval(function () {
+            if (!video.videoWidth) return;
+            detector.detect(video).then(function (codes) {
+              if (!codes || !codes.length) return;
+              var isbn = (codes[0].rawValue || '').replace(/[^0-9Xx]/g, '');
+              if (isbn.length < 10) return;
+              onIsbnScanned(isbn);
+            }).catch(function () {});
+          }, 350);
+        }).catch(function () { stopScanner(); toast('Kamera-Zugriff abgelehnt — ISBN bitte eintippen.'); });
+        return;
+      }
+    }
+
+    // Weg 2: ZXing-Fallback (iPhone/iPad/Safari & alle ohne BarcodeDetector)
+    buildScanUi(' · Scanner wird geladen…');
+    loadZxing().then(function (ZX) {
+      var hint = document.querySelector('#scanModal .scan-hint');
+      if (hint) hint.textContent = 'Barcode (ISBN) auf der Rückseite in den Rahmen halten';
       var video = document.getElementById('scanVideo');
-      if (!video) { stopScanner(); return; }
-      video.srcObject = stream;
-      scanTimer = setInterval(function () {
-        if (!video.videoWidth) return;
-        detector.detect(video).then(function (codes) {
-          if (!codes || !codes.length) return;
-          var isbn = (codes[0].rawValue || '').replace(/[^0-9Xx]/g, '');
-          if (isbn.length < 10) return;
-          stopScanner();
-          toast('✓ ISBN erkannt: ' + isbn);
-          $('searchInput').value = isbn;
-          doSearch(isbn);
-        }).catch(function () {});
-      }, 350);
+      if (!video) return;
+      zxingReader = new ZX.BrowserMultiFormatReader();
+      zxingReader.decodeFromConstraints(
+        { video: { facingMode: 'environment' } }, video,
+        function (result) {
+          if (!result) return;
+          var isbn = (result.getText ? result.getText() : String(result)).replace(/[^0-9Xx]/g, '');
+          if (isbn.length >= 10) onIsbnScanned(isbn);
+        }
+      ).catch(function () { toast('Kamera-Zugriff abgelehnt — ISBN bitte eintippen.'); });
     }).catch(function () {
-      stopScanner();
-      toast('Kamera-Zugriff abgelehnt — ISBN bitte ins Suchfeld tippen.');
+      var hint = document.querySelector('#scanModal .scan-hint');
+      if (hint) hint.textContent = 'Scanner nicht verfügbar — bitte ISBN unten eintippen.';
     });
   }
 
@@ -1607,7 +1727,8 @@
         ? 'Titel oder Genre — 2 Quellen parallel: AniList · MyAnimeList (Jikan)'
         : 'Titel, Autor·in oder ISBN — 3 Quellen parallel: Google Books · Open Library · Deutsche Nationalbibliothek';
       $('searchInput').placeholder = searchMode === 'manga' ? 'z. B. „One Piece" oder „Junji Ito"…' : 'z. B. „Der Herr der Ringe" oder „Haruki Murakami"…';
-      $('scanBtn').style.display = searchMode === 'manga' ? 'none' : '';
+      // Scannen bleibt auch im Manga-Modus möglich: deutsche Manga-Ausgaben haben eine ISBN
+      $('scanBtn').style.display = '';
       $('quickChips').innerHTML = CHIP_SETS[searchMode].map(function (c) {
         return '<button class="chip" data-q="' + esc(c[0]) + '">' + esc(c[1]) + '</button>';
       }).join('');
@@ -1617,7 +1738,7 @@
     });
 
     // Sammlung: Filter
-    ['filterStatus', 'filterGenre', 'sortLib'].forEach(function (id) {
+    ['filterStatus', 'filterGenre', 'sortLib', 'filterKind', 'filterPublisher'].forEach(function (id) {
       $(id).addEventListener('change', renderLib);
     });
     $('exportBtn').addEventListener('click', exportJson);

@@ -583,6 +583,14 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 }
 @keyframes scanPulse { 0%,100% { opacity: .95; } 50% { opacity: .5; } }
 .scan-hint { color: #f2e9dc; font-size: 13px; margin: 12px 0 10px; }
+.scan-manual { display: flex; gap: 8px; justify-content: center; margin: 0 0 12px; }
+.scan-manual input {
+  flex: 0 1 220px; min-width: 0; background: rgba(255,255,255,.08);
+  border: 1px solid rgba(245,201,107,.4); color: #f2e9dc;
+  padding: 10px 12px; border-radius: 10px; font-size: 14px; outline: none;
+}
+.scan-manual input:focus { border-color: var(--accent); }
+.scan-manual .btn-primary { padding: 10px 16px; }
 
 /* ───── v3: Cover-Roulette ───── */
 .roll-modal {

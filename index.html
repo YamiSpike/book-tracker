@@ -134,7 +134,13 @@
       <option value="reading">📖 Lese gerade</option>
       <option value="want">🔖 Will lesen</option>
     </select>
+    <select id="filterKind" class="select-mini" aria-label="Typ" style="display:none">
+      <option value="">Bücher &amp; Mangas</option>
+      <option value="buch">📚 Nur Bücher</option>
+      <option value="manga">🎌 Nur Mangas</option>
+    </select>
     <select id="filterGenre" class="select-mini" aria-label="Genre"><option value="">Alle Genres</option></select>
+    <select id="filterPublisher" class="select-mini" aria-label="Verlag" style="display:none"><option value="">Alle Verlage</option></select>
     <select id="filterTag" class="select-mini" aria-label="Regal/Tag"><option value="">Alle Regale/Tags</option></select>
     <select id="sortLib" class="select-mini" aria-label="Sortieren">
       <option value="added">Sortierung: Zuletzt hinzugefügt</option>
@@ -275,11 +281,11 @@
       <summary>✨ Alle Funktionen der App anzeigen</summary>
       <div style="padding:6px 0 2px;">
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Entdecken &amp; Suchen</p>
-        <p class="muted" style="margin:0;">3 Quellen parallel: Google Books · Open Library · Deutsche Nationalbibliothek (alle deutschen Bücher) · Automatischer Ausfall-Schutz &amp; Duplikat-Zusammenführung · Genre-Schnellfilter · Cover, Beschreibung, ISBN, Seitenzahl &amp; Erscheinungsjahr · Amazon- &amp; Thalia-Links in der Detail-Ansicht · 🎌 Manga-Modus mit eigenen Quellen (AniList · MyAnimeList/Jikan), Bände/Kapitel &amp; Genre-Chips</p>
+        <p class="muted" style="margin:0;">3 Quellen parallel: Google Books · Open Library · Deutsche Nationalbibliothek (alle deutschen Bücher) · Automatischer Ausfall-Schutz &amp; Duplikat-Zusammenführung · Genre-Schnellfilter · Cover, Beschreibung, ISBN, Seitenzahl &amp; Erscheinungsjahr · Amazon- &amp; Thalia-Links in der Detail-Ansicht · 🎌 Manga-Modus mit eigenen Quellen (AniList · MyAnimeList/Jikan), Bände/Kapitel, 🏢 <b>deutsche Verlagsausgaben</b> (Carlsen, Egmont, KAZÉ/Crunchyroll, altraverse, TOKYOPOP, Panini …) mit ISBN &amp; Verlag, Verlags-Filter &amp; Typ-Filter (Bücher/Mangas) in der Sammlung</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Maskottchen Fuku 🦉</p>
         <p class="muted" style="margin:0;">Bücher-Eule mit Lese-Tipps, Erinnerungen an angefangene Bücher &amp; persönlichen Empfehlungen · antippen für Tipp · ausblendbar</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Sammeln &amp; Verwalten</p>
-        <p class="muted" style="margin:0;">Lesestatus (Gelesen / Lese gerade / Will lesen) · 5-Sterne-Bewertung · Persönliche Notizen · 📷 ISBN-Barcode-Scanner (Kamera) · Lese-Fortschritt in Seiten mit Balken (letzte Seite = automatisch „Gelesen") · Eigene Regale/Tags · ✍️ Zitate-Sammlung pro Buch · Genre-, Status- &amp; Tag-Filter · Sortierung · 🎲 „Was lese ich als Nächstes?"-Zufallsrad (⭐-Priorität wird bevorzugt) · 🔍 Live-Suche in der eigenen Sammlung (auch Notizen &amp; Zitate) · 🔁 Re-Read-Zähler (zählt für die Challenge) · Entfernen mit Sync-fähigen Löschungen</p>
+        <p class="muted" style="margin:0;">Lesestatus (Gelesen / Lese gerade / Will lesen) · 5-Sterne-Bewertung · Persönliche Notizen · 📷 ISBN-Barcode-Scanner (Kamera, auch iPhone/iPad dank ZXing-Fallback + manuelle Eingabe) · Lese-Fortschritt in Seiten mit Balken (letzte Seite = automatisch „Gelesen") · Eigene Regale/Tags · ✍️ Zitate-Sammlung pro Buch · Genre-, Status- &amp; Tag-Filter · Sortierung · 🎲 „Was lese ich als Nächstes?"-Zufallsrad (⭐-Priorität wird bevorzugt) · 🔍 Live-Suche in der eigenen Sammlung (auch Notizen &amp; Zitate) · 🔁 Re-Read-Zähler (zählt für die Challenge) · Entfernen mit Sync-fähigen Löschungen</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Lese-Challenge &amp; Tagebuch</p>
         <p class="muted" style="margin:0;">🎯 Jahres-Leseziel mit Fortschrittsring auf der Startseite · Automatisches Lese-Tagebuch (Start-/Enddatum je Buch) · 🔥 Aktivitäts-Heatmap (26 Wochen) · Zitat des Tages · 📚 Buchreihen-Erkennung mit fehlenden Bänden · ⏱️ Lese-Timer mit Sessions &amp; Lesezeit-Statistik · 🏆 12 Erfolge/Abzeichen · 📚 Jahresrückblick als speicherbares Bild · 📅 Erscheinungs-Radar für Wunschbücher · 🔔 Tägliche Lese-Erinnerung · ≈ Bibliotheks-Wert</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Empfehlungen</p>
@@ -292,7 +298,7 @@
         <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Kerzenlicht-Glühen im Hero · Gestaffelte Karten-Animationen · Cover-Zoom &amp; Glanz-Effekt · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata) · 🌗 Auto-Theme nach Systemeinstellung</p>
       </div>
     </details>
-    <p class="muted" style="font-size:12px;margin-top:8px;">Version v4</p>
+    <p class="muted" style="font-size:12px;margin-top:8px;">Version v5</p>
   </div>
 </section>
 
@@ -307,7 +313,7 @@
 
 <footer class="appfoot">
   <p>Buchdaten: Google Books · Open Library · Deutsche Nationalbibliothek — Cover © jeweilige Verlage</p>
-  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v4</p>
+  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v5</p>
 </footer>
 
 <script src="js/update.js"></script>
