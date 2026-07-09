@@ -105,6 +105,7 @@
   <div class="search-row">
     <input id="searchInput" type="search" placeholder="z. B. „Der Herr der Ringe" oder „Haruki Murakami"…" autocomplete="off" enterkeyhint="search" />
     <button class="icon-btn scan-btn" id="scanBtn" title="ISBN-Barcode scannen" aria-label="Barcode scannen">📷</button>
+    <button class="icon-btn scan-btn" id="manualBtn" title="Buch manuell erfassen" aria-label="Manuell erfassen">✍️</button>
     <button class="btn-primary" id="searchBtn">Suchen</button>
   </div>
   <div class="quick-chips" id="quickChips">
@@ -120,6 +121,7 @@
   <div id="searchEmpty" class="empty">
     <div class="big">🔍</div>
     <p>Suche nach einem Buch, das du gelesen hast,<br />und füge es deiner Sammlung hinzu.</p>
+    <p class="muted" style="margin-top:14px">Nicht gefunden? <button class="btn-ghost" id="manualEmptyBtn">✍️ Manuell erfassen</button></p>
   </div>
 </section>
 
@@ -133,6 +135,7 @@
       <option value="read">✓ Gelesen</option>
       <option value="reading">📖 Lese gerade</option>
       <option value="want">🔖 Will lesen</option>
+      <option value="dnf">🚫 Abgebrochen</option>
     </select>
     <select id="filterKind" class="select-mini" aria-label="Typ" style="display:none">
       <option value="">Bücher &amp; Mangas</option>
@@ -161,6 +164,20 @@
 
 <!-- ─── Empfehlungen ─── -->
 <section id="view-tipps" class="view">
+  <div class="mood-block">
+    <h2 style="margin-top:4px">🧭 Worauf hast du Lust?</h2>
+    <p class="section-sub">Finde ein Buch aus deiner Sammlung nach Stimmung</p>
+    <div class="quick-chips" id="moodChips">
+      <button class="chip" data-mood="spannend">⚡ Spannend</button>
+      <button class="chip" data-mood="entspannt">😌 Entspannt</button>
+      <button class="chip" data-mood="lustig">😂 Lustig</button>
+      <button class="chip" data-mood="romantisch">💘 Romantisch</button>
+      <button class="chip" data-mood="kurz">📏 Kurz &amp; schnell</button>
+      <button class="chip" data-mood="episch">📚 Episch &amp; lang</button>
+      <button class="chip" data-mood="fantasy">🐉 Fantasy</button>
+    </div>
+    <div id="moodResult" class="grid"></div>
+  </div>
   <div class="reco-head">
     <div><h2>Für dich empfohlen</h2><p class="section-sub" id="recoSub">Basierend auf deinen Lieblings-Genres und -Autor·innen</p></div>
     <button class="btn-ghost" id="recoRefresh">↻ Neu laden</button>
@@ -285,9 +302,9 @@
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Maskottchen Fuku 🦉</p>
         <p class="muted" style="margin:0;">Bücher-Eule mit Lese-Tipps, Erinnerungen an angefangene Bücher &amp; persönlichen Empfehlungen · antippen für Tipp · ausblendbar</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Sammeln &amp; Verwalten</p>
-        <p class="muted" style="margin:0;">Lesestatus (Gelesen / Lese gerade / Will lesen) · 5-Sterne-Bewertung · Persönliche Notizen · 📷 ISBN-Barcode-Scanner (Kamera, auch iPhone/iPad dank ZXing-Fallback + manuelle Eingabe) · Lese-Fortschritt in Seiten mit Balken (letzte Seite = automatisch „Gelesen") · Eigene Regale/Tags · ✍️ Zitate-Sammlung pro Buch · Genre-, Status- &amp; Tag-Filter · Sortierung · 🎲 „Was lese ich als Nächstes?"-Zufallsrad (⭐-Priorität wird bevorzugt) · 🔍 Live-Suche in der eigenen Sammlung (auch Notizen &amp; Zitate) · 🔁 Re-Read-Zähler (zählt für die Challenge) · Entfernen mit Sync-fähigen Löschungen</p>
+        <p class="muted" style="margin:0;">Lesestatus (Gelesen / Lese gerade / Will lesen) · 5-Sterne-Bewertung · Persönliche Notizen · 📷 ISBN-Barcode-Scanner (Kamera, auch iPhone/iPad dank ZXing-Fallback + manuelle Eingabe) · Lese-Fortschritt in Seiten mit Balken (letzte Seite = automatisch „Gelesen") · Eigene Regale/Tags · ✍️ Zitate-Sammlung pro Buch · Genre-, Status- &amp; Tag-Filter · Sortierung · ✍️ Eigene Bücher/Mangas manuell erfassen (Dubletten-Check) · 🚫 Status „Abgebrochen" (DNF) mit Grund · 📕 Format (Print/E-Book/Hörbuch) · 🔗 „Ähnliche finden" pro Titel · 🎲 „Was lese ich als Nächstes?"-Zufallsrad (⭐-Priorität wird bevorzugt) · 🔍 Live-Suche in der eigenen Sammlung (auch Notizen &amp; Zitate) · 🔁 Re-Read-Zähler (zählt für die Challenge) · Entfernen mit Sync-fähigen Löschungen</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Lese-Challenge &amp; Tagebuch</p>
-        <p class="muted" style="margin:0;">🎯 Jahres-Leseziel mit Fortschrittsring auf der Startseite · Automatisches Lese-Tagebuch (Start-/Enddatum je Buch) · 🔥 Aktivitäts-Heatmap (26 Wochen) · Zitat des Tages · 📚 Buchreihen-Erkennung mit fehlenden Bänden · ⏱️ Lese-Timer mit Sessions &amp; Lesezeit-Statistik · 🏆 12 Erfolge/Abzeichen · 📚 Jahresrückblick als speicherbares Bild · 📅 Erscheinungs-Radar für Wunschbücher · 🔔 Tägliche Lese-Erinnerung · ≈ Bibliotheks-Wert</p>
+        <p class="muted" style="margin:0;">🧭 Stimmungs-Picker „Worauf hast du Lust?" · 🎯 Fertig-Prognose bei „Lese gerade" (Restzeit aus Timer-Tempo/Startdatum) · 💡 Bildschirm bleibt beim Lese-Timer an (Wake Lock) · 🎯 Jahres-Leseziel mit Fortschrittsring auf der Startseite · Automatisches Lese-Tagebuch (Start-/Enddatum je Buch) · 🔥 Aktivitäts-Heatmap (26 Wochen) · Zitat des Tages · 📚 Buchreihen-Erkennung mit fehlenden Bänden · ⏱️ Lese-Timer mit Sessions &amp; Lesezeit-Statistik · 🏆 12 Erfolge/Abzeichen · 📚 Jahresrückblick als speicherbares Bild · 📅 Erscheinungs-Radar für Wunschbücher · 🔔 Tägliche Lese-Erinnerung · ≈ Bibliotheks-Wert</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Empfehlungen</p>
         <p class="muted" style="margin:0;">Personalisierte Buch-Tipps aus deiner Sammlung (Lieblings-Genres, -Autor·innen, Bewertungen) · Begründung pro Empfehlung · Lese-Tipp auf der Startseite</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Statistik</p>
@@ -298,7 +315,7 @@
         <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Kerzenlicht-Glühen im Hero · Gestaffelte Karten-Animationen · Cover-Zoom &amp; Glanz-Effekt · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata) · 🌗 Auto-Theme nach Systemeinstellung</p>
       </div>
     </details>
-    <p class="muted" style="font-size:12px;margin-top:8px;">Version v5</p>
+    <p class="muted" style="font-size:12px;margin-top:8px;">Version v6</p>
   </div>
 </section>
 
@@ -313,7 +330,7 @@
 
 <footer class="appfoot">
   <p>Buchdaten: Google Books · Open Library · Deutsche Nationalbibliothek — Cover © jeweilige Verlage</p>
-  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v5</p>
+  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v6</p>
 </footer>
 
 <script src="js/update.js"></script>

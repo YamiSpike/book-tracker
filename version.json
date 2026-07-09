@@ -1,4 +1,4 @@
 {
-  "v": "v5",
+  "v": "v6",
   "_comment": "Server-seitige Versions-Datei für den Update-Banner. Bei jedem Update MUSS dieser Wert mit APP_VERSION in js/update.js übereinstimmen."
 }

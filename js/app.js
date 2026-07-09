@@ -65,7 +65,8 @@
     for (var i = 1; i <= 5; i++) s += i <= r ? '★' : '☆';
     return s;
   }
-  var STATUS_LBL = { read: '✓ Gelesen', reading: '📖 Lese gerade', want: '🔖 Will lesen' };
+  var STATUS_LBL = { read: '✓ Gelesen', reading: '📖 Lese gerade', want: '🔖 Will lesen', dnf: '🚫 Abgebrochen' };
+  var FORMAT_LBL = { print: '📕 Print', ebook: '📱 E-Book', audio: '🎧 Hörbuch' };
 
   // ───── Buchreihen-Erkennung (aus dem Titel) ─────
   function seriesOf(b) {
@@ -541,6 +542,7 @@
 
   // ───── Suche ─────
   var lastSearch = [];
+  var lastSimilar = [];    // v6: „Ähnliche finden"-Ergebnisse im Detail
   var searchMode = 'buch'; // 'buch' | 'manga'
   function doSearch(q) {
     q = (q || '').trim();
@@ -849,6 +851,42 @@
     if (yb) yb.addEventListener('click', openYearReview);
   }
 
+  // v6: Fertig-Prognose für „Lese gerade" — aus Timer-Tempo oder Seiten/Tag seit Start
+  function forecastHtml(own) {
+    if (!own || own.status !== 'reading' || !(own.pages > 0)) return '';
+    var page = own.progress || 0;
+    var left = own.pages - page;
+    if (left <= 0) return '';
+    // 1) Genauestes Signal: Timer-Sessions für dieses Buch → Minuten pro Seite
+    var mins = loadSessions().filter(function (s) { return s.bookId === own.id; })
+      .reduce(function (a, s) { return a + (s.minutes || 0); }, 0);
+    if (mins >= 5 && page >= 3) {
+      var perPage = mins / page;               // Minuten pro Seite
+      var restMin = Math.round(perPage * left);
+      var txt = restMin >= 90 ? (Math.round(restMin / 60 * 10) / 10 + ' Std') : (restMin + ' Min');
+      return '<div class="forecast">🎯 Bei deinem Tempo noch etwa <b>' + txt + '</b> Lesezeit (' + left + ' Seiten)</div>';
+    }
+    // 2) Fallback: Seiten pro Tag seit Startdatum → voraussichtliches Enddatum
+    if (own.startedAt && page >= 5) {
+      var days = Math.max(1, (Date.now() - own.startedAt) / 86400000);
+      var perDay = page / days;
+      if (perDay >= 0.5) {
+        var restDays = Math.ceil(left / perDay);
+        var done = new Date(Date.now() + restDays * 86400000);
+        return '<div class="forecast">🎯 Bei ~' + Math.round(perDay) + ' Seiten/Tag fertig um den <b>' + fmtDate(done.getTime()) + '</b> (' + left + ' Seiten)</div>';
+      }
+    }
+    return '';
+  }
+
+  function formatRowHtml(own) {
+    if (!own) return '';
+    return '<div class="format-row"><span class="format-lbl">Format:</span>'
+      + ['print', 'ebook', 'audio'].map(function (f) {
+        return '<button class="format-btn' + (own.format === f ? ' active' : '') + '" data-format="' + f + '">' + FORMAT_LBL[f] + '</button>';
+      }).join('') + '</div>';
+  }
+
   // Shop-Suchlinks (Amazon/Thalia haben keine öffentliche API — Suche per ISBN/Titel im Shop)
   function shopLinksHtml(b) {
     var q = b.isbn || (b.title + ' ' + (b.authors[0] || ''));
@@ -888,6 +926,7 @@
       if (b.chapters) facts.push(b.chapters + ' Kapitel');
     }
     if (b.publisher) facts.push('🏢 ' + b.publisher);
+    if (own && own.format && FORMAT_LBL[own.format]) facts.push(FORMAT_LBL[own.format]);
     if (b.year) facts.push(b.year);
     if (b.pages) facts.push(b.pages + ' Seiten');
     // Manga-Kategorien heißen „Manga / Genre" → Genre zeigen, nicht dreimal „Manga"
@@ -900,9 +939,12 @@
     if (ser) facts.push('📚 ' + ser.name + ' · Band ' + ser.num);
     if (own && own.startedAt) facts.push('▶ ' + fmtDate(own.startedAt));
     if (own && own.finishedAt) facts.push('✓ ' + fmtDate(own.finishedAt));
+    if (own && own.status === 'dnf' && own.dnfReason) facts.push('🚫 ' + own.dnfReason);
 
-    var statusRow = sharedData ? '' : ['read', 'reading', 'want'].map(function (s) {
+    var statusRow = sharedData ? '' : ['read', 'reading', 'want', 'dnf'].map(function (s) {
       var on = own && own.status === s;
+      // „Abgebrochen" nur zeigen, wenn schon in Sammlung (kein Erst-Status)
+      if (s === 'dnf' && !own) return '';
       return '<button class="status-btn' + (on ? ' active ' + s : '') + '" data-status="' + s + '">' + STATUS_LBL[s] + '</button>';
     }).join('');
     // v4: kontextabhängige Aktionen
@@ -941,6 +983,8 @@
             + '<input id="progInput" type="number" min="0" max="' + own.pages + '" value="' + (own.progress || 0) + '" inputmode="numeric" />'
             + '<span class="progress-pct">' + Math.min(100, Math.round((own.progress || 0) / own.pages * 100)) + '% von ' + own.pages + '</span></div>'
           : '')
+        + forecastHtml(own)
+        + formatRowHtml(own)
         + '<div class="tags-edit"><label for="tagsInput">🏷️ Regale/Tags (Komma-getrennt):</label>'
           + '<input id="tagsInput" type="text" placeholder="z. B. Klassiker, Urlaub 2026" value="' + esc((own.tags || []).join(', ')) + '" /></div>'
         + '<div style="padding:8px 18px 0"><textarea class="note-area" id="noteArea" placeholder="Deine Notizen zu diesem Buch…">' + esc(own.note || '') + '</textarea></div>'
@@ -949,6 +993,7 @@
       + shopLinksHtml(b)
       + '<div class="detail-body">'
       + (b.desc ? '<h3>Beschreibung</h3><div class="desc">' + esc(b.desc.replace(/<[^>]+>/g, ' ')).slice(0, 2200) + '</div>' : '<p class="muted" style="margin-top:14px">Keine Beschreibung verfügbar.</p>')
+      + '<div class="similar-block"><button class="btn-ghost" id="similarBtn">🔗 Ähnliche ' + (b.kind === 'manga' ? 'Mangas' : 'Bücher') + ' finden</button><div id="similarGrid" class="grid" style="margin-top:12px"></div></div>'
       + '</div>';
 
     m.hidden = false;
@@ -957,9 +1002,25 @@
     // Status-Buttons
     inner.querySelectorAll('.status-btn[data-status]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        upsertBook(b, btn.dataset.status);
-        toast(STATUS_LBL[btn.dataset.status] + ' — gespeichert ✓');
+        var s = btn.dataset.status;
+        upsertBook(b, s);
+        if (s === 'dnf') {
+          var reason = window.prompt('Warum abgebrochen? (optional — z. B. „zu langatmig")', (findInLib(b.id) || {}).dnfReason || '');
+          if (reason !== null) patchBook(b.id, { dnfReason: reason.slice(0, 200) });
+          toast('🚫 Als abgebrochen markiert');
+        } else {
+          toast(STATUS_LBL[s] + ' — gespeichert ✓');
+        }
         openDetail(b); // neu rendern (zeigt jetzt Sterne/Notiz)
+      });
+    });
+    // v6: Format
+    inner.querySelectorAll('.format-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var cur = findInLib(b.id);
+        var f = (cur && cur.format === btn.dataset.format) ? '' : btn.dataset.format;
+        patchBook(b.id, { format: f });
+        openDetail(b);
       });
     });
     var rm = inner.querySelector('[data-remove]');
@@ -1000,6 +1061,31 @@
     });
     var na = inner.querySelector('#noteArea');
     if (na) na.addEventListener('change', function () { patchBook(b.id, { note: na.value }); toast('Notiz gespeichert ✓'); });
+
+    // v6: „Ähnliche finden" — quellenbasiert per Autor·in bzw. Genre
+    var simBtn = inner.querySelector('#similarBtn');
+    if (simBtn) simBtn.addEventListener('click', function () {
+      var grid = inner.querySelector('#similarGrid');
+      simBtn.disabled = true; simBtn.textContent = 'Suche…';
+      var isManga = b.kind === 'manga';
+      var author = (b.authors || [])[0];
+      var genre = (b.categories || [])[0];
+      var q, reasonKind;
+      if (isManga) { q = genre ? (genre.split('/').pop().trim()) : b.title.split(' ')[0]; reasonKind = 'manga'; }
+      else if (author) { q = 'inauthor:"' + author + '"'; }
+      else if (genre) { q = 'subject:"' + genre.split('/')[0].trim() + '"'; }
+      else { q = b.title.split(' ').slice(0, 3).join(' '); }
+      var run = isManga ? searchMangas(q, 12) : searchBooks(q, 12);
+      run.then(function (items) {
+        simBtn.style.display = 'none';
+        var out = items.filter(function (x) { return bookKey(x) !== bookKey(b) && !inLib(x); }).slice(0, 6);
+        lastSimilar = out;
+        if (!out.length) { grid.innerHTML = '<p class="muted" style="grid-column:1/-1">Keine ähnlichen Titel gefunden.</p>'; return; }
+        grid.innerHTML = out.map(function (x) { return cardHtml(x, { src: 'similar' }); }).join('');
+      }).catch(function () {
+        simBtn.disabled = false; simBtn.textContent = '🔗 Erneut versuchen';
+      });
+    });
 
     // Lese-Fortschritt (Seite)
     var pi = inner.querySelector('#progInput');
@@ -1073,6 +1159,7 @@
     var b = null;
     if (src === 'search') b = lastSearch.find(function (x) { return x.id === id; });
     else if (src === 'reco') { var r = lastReco.find(function (x) { return x.book.id === id; }); b = r && r.book; }
+    else if (src === 'similar') b = lastSimilar.find(function (x) { return x.id === id; });
     else b = findInLib(id);
     if (b) openDetail(findInLib(id) || b);
   });
@@ -1367,6 +1454,92 @@
     });
   }
 
+  // ───── v6: Stimmungs-Picker „Worauf hast du Lust?" ─────
+  // Ordnet Genres/Seitenzahl einer Stimmung zu und schlägt passende Bücher aus der Sammlung vor
+  // (bevorzugt ungelesene: „will lesen"/„lese gerade").
+  var MOOD_GENRES = {
+    spannend: ['thriller', 'krimi', 'crime', 'mystery', 'suspense', 'action', 'horror'],
+    entspannt: ['slice of life', 'feel-good', 'romance', 'children', 'poetry', 'cozy'],
+    lustig: ['comedy', 'humor', 'humour', 'satire'],
+    romantisch: ['romance', 'liebe', 'love'],
+    fantasy: ['fantasy', 'science fiction', 'sci-fi', 'adventure', 'supernatural']
+  };
+  function pickByMood(mood) {
+    var books = lib();
+    var res = $('moodResult');
+    if (!books.length) { res.innerHTML = '<p class="muted" style="grid-column:1/-1">Deine Sammlung ist noch leer.</p>'; return; }
+    var scored = books.map(function (b) {
+      var score = 0;
+      var text = ((b.categories || []).join(' ') + ' ' + (b.tags || []).join(' ')).toLowerCase();
+      if (mood === 'kurz') score += (b.pages && b.pages <= 250) ? 3 : (b.pages ? -1 : 0);
+      else if (mood === 'episch') score += (b.pages && b.pages >= 500) ? 3 : (b.pages ? -1 : 0);
+      else {
+        (MOOD_GENRES[mood] || [mood]).forEach(function (g) { if (text.indexOf(g) >= 0) score += 2; });
+      }
+      if (b.status === 'want') score += 1.5;         // ungelesene bevorzugen
+      if (b.status === 'reading') score += 1;
+      if (b.status === 'read') score -= 0.5;
+      if (b.status === 'dnf') score -= 2;
+      score += (b.rating || 0) * 0.2;
+      return { b: b, score: score };
+    }).filter(function (x) { return x.score > 0; })
+      .sort(function (a, b) { return b.score - a.score; });
+    if (!scored.length) {
+      res.innerHTML = '<p class="muted" style="grid-column:1/-1">Kein passendes Buch für diese Stimmung in deiner Sammlung — schau mal unter „Entdecken". 🔍</p>';
+      return;
+    }
+    res.innerHTML = scored.slice(0, 6).map(function (x) { return cardHtml(x.b, { showStatus: true }); }).join('');
+  }
+
+  // ───── v6: Buch/Manga manuell erfassen (wenn in keiner Quelle) ─────
+  function openManualForm() {
+    var m = document.createElement('div');
+    m.className = 'manual-modal';
+    m.innerHTML = '<div class="manual-card"><button class="manual-close" aria-label="Schließen">✕</button>'
+      + '<h3>✍️ Eigenes Buch erfassen</h3>'
+      + '<p class="muted" style="margin:0 0 12px">Für Titel, die in keiner Quelle stehen. * = Pflichtfeld.</p>'
+      + '<input class="mf" id="mfTitle" placeholder="Titel *" />'
+      + '<input class="mf" id="mfAuthor" placeholder="Autor·in" />'
+      + '<div class="mf-row"><select class="mf" id="mfKind"><option value="buch">📚 Buch</option><option value="manga">🎌 Manga</option></select>'
+      + '<select class="mf" id="mfStatus"><option value="read">✓ Gelesen</option><option value="reading">📖 Lese gerade</option><option value="want">🔖 Will lesen</option></select></div>'
+      + '<div class="mf-row"><input class="mf" id="mfPages" type="number" inputmode="numeric" placeholder="Seiten" />'
+      + '<input class="mf" id="mfYear" type="number" inputmode="numeric" placeholder="Jahr" /></div>'
+      + '<input class="mf" id="mfPublisher" placeholder="Verlag" />'
+      + '<input class="mf" id="mfGenre" placeholder="Genre (z. B. Fantasy)" />'
+      + '<input class="mf" id="mfCover" placeholder="Cover-Bild-URL (optional)" />'
+      + '<button class="btn-primary" id="mfSave" style="width:100%;margin-top:6px">Zur Sammlung hinzufügen</button></div>';
+    document.body.appendChild(m);
+    var close = function () { m.remove(); };
+    m.querySelector('.manual-close').addEventListener('click', close);
+    m.addEventListener('click', function (e) { if (e.target === m) close(); });
+    m.querySelector('#mfSave').addEventListener('click', function () {
+      var title = (m.querySelector('#mfTitle').value || '').trim();
+      if (!title) { toast('Bitte einen Titel eingeben.'); m.querySelector('#mfTitle').focus(); return; }
+      var author = (m.querySelector('#mfAuthor').value || '').trim();
+      var kind = m.querySelector('#mfKind').value;
+      var genre = (m.querySelector('#mfGenre').value || '').trim();
+      var cover = (m.querySelector('#mfCover').value || '').trim();
+      if (cover && !/^https:\/\//.test(cover)) cover = '';
+      var book = {
+        id: 'manual-' + Date.now(),
+        title: title, authors: author ? [author] : [],
+        cover: cover, year: (m.querySelector('#mfYear').value || '').slice(0, 4),
+        pages: parseInt(m.querySelector('#mfPages').value, 10) || 0,
+        categories: genre ? [(kind === 'manga' ? 'Manga / ' : '') + genre] : [],
+        desc: '', lang: 'de', isbn: '', publisher: (m.querySelector('#mfPublisher').value || '').trim(),
+        gRating: 0
+      };
+      if (kind === 'manga') book.kind = 'manga';
+      // Dubletten-Check
+      if (inLib(book)) { toast('„' + title + '" ist bereits in deiner Sammlung.'); return; }
+      upsertBook(book, m.querySelector('#mfStatus').value);
+      close();
+      toast('✓ „' + title + '" hinzugefügt');
+      openDetail(findInLib(book.id) || book);
+    });
+    setTimeout(function () { m.querySelector('#mfTitle').focus(); }, 50);
+  }
+
   // ───── 🎲 „Was lese ich als Nächstes?" — Cover-Roulette ─────
   function rollNext() {
     var books = lib();
@@ -1400,18 +1573,37 @@
   }
 
   // ───── v4: Lese-Timer ─────
-  var timerTick = null;
+  var timerTick = null, wakeLock = null;
+  // v6: Bildschirm während der Lese-Session anlassen (Screen Wake Lock, wo verfügbar)
+  function acquireWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+      navigator.wakeLock.request('screen').then(function (wl) {
+        wakeLock = wl;
+        wl.addEventListener('release', function () { wakeLock = null; });
+      }).catch(function () {});
+    } catch (e) {}
+  }
+  function releaseWakeLock() {
+    if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+  }
+  // Bei Tab-Rückkehr Wake Lock erneuern (Browser gibt ihn beim Wegblenden frei)
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && activeSess() && !wakeLock) acquireWakeLock();
+  });
   function activeSess() {
     try { return JSON.parse(localStorage.getItem(LS_ACTIVE) || 'null'); } catch (e) { return null; }
   }
   function startSession(bookId) {
     try { localStorage.setItem(LS_ACTIVE, JSON.stringify({ bookId: bookId, start: Date.now() })); } catch (e) {}
+    acquireWakeLock();
     renderTimerBar();
     toast('⏱️ Lese-Session gestartet — viel Spaß!');
   }
   function stopSession() {
     var s = activeSess();
     if (!s) return;
+    releaseWakeLock();
     try { localStorage.removeItem(LS_ACTIVE); } catch (e) {}
     var mins = Math.round((Date.now() - s.start) / 60000);
     if (mins >= 1) {
@@ -1745,6 +1937,17 @@
 
     // Empfehlungen
     $('recoRefresh').addEventListener('click', function () { renderReco(true); });
+
+    // v6: Stimmungs-Picker
+    $('moodChips').addEventListener('click', function (e) {
+      var c = e.target.closest('.chip'); if (!c) return;
+      document.querySelectorAll('#moodChips .chip').forEach(function (x) { x.classList.toggle('active', x === c); });
+      pickByMood(c.dataset.mood);
+    });
+
+    // v6: Manuell erfassen
+    $('manualEmptyBtn').addEventListener('click', openManualForm);
+    $('manualBtn').addEventListener('click', openManualForm);
 
     // Modal
     $('modalClose').addEventListener('click', closeDetail);
