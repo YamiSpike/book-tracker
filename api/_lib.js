@@ -39,18 +39,29 @@ export function getRedis() {
 const SECRET = process.env.JWT_SECRET || null;
 export const authReady = () => !!SECRET;
 
-export const makeToken = (email) => {
+// pv = "password version" (Zeitstempel des letzten Passwort-Setzens). Ins Token
+// eingebettet; nach einem Passwort-Reset werden ältere Tokens dadurch ungültig.
+export const makeToken = (email, pv = 0) => {
   if (!SECRET) throw new Error("JWT_SECRET ist nicht gesetzt");
-  return jwt.sign({ email }, SECRET, { expiresIn: "365d" });
+  return jwt.sign({ email, pv }, SECRET, { expiresIn: "365d" });
 };
 
+// Nur E-Mail (für einfache Endpunkte). Keine Revoke-Prüfung.
 export function verifyToken(req) {
+  const p = verifyPayload(req);
+  return p ? p.email : null;
+}
+// Vollständige Payload {email, pv} — für Endpunkte, die gegen user.pwdAt prüfen.
+export function verifyPayload(req) {
   if (!SECRET) return null;
   const h = req.headers.authorization || "";
   const t = h.startsWith("Bearer ") ? h.slice(7) : null;
   if (!t) return null;
-  try { return jwt.verify(t, SECRET).email; } catch { return null; }
+  try { const d = jwt.verify(t, SECRET); return { email: d.email, pv: d.pv || 0 }; } catch { return null; }
 }
+// Konstanter Dummy-Hash: bcrypt.compare gegen diesen, wenn kein User existiert,
+// damit die Antwortzeit nicht verrät, ob die E-Mail registriert ist (Timing-Leak).
+export const DUMMY_HASH = "$2b$10$C6UzMDM.H6dfI/f/IKcEeO3f3fV3zJ0m1kO8xq9m3nQ4p5r6s7t8u";
 
 export function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -59,8 +70,18 @@ export function readBody(req) {
 
 export const norm = (e) => String(e || "").trim().toLowerCase();
 export const validEmail = (e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
-export const clientIp = (req) =>
-  (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || "unknown";
+// Vertrauenswürdige Client-IP: Vercels x-real-ip wird vom Edge-Proxy gesetzt und
+// ist NICHT client-fälschbar. Der linke x-forwarded-for-Wert dagegen ist spoofbar
+// (Rate-Limit-Bypass). Fallback aufs RECHTE XFF-Ende (letzter Hop = vertrauenswürdig),
+// dann linkes Ende (nur lokale Dev-Umgebung ohne Proxy).
+export const clientIp = (req) => {
+  const real = (req.headers["x-real-ip"] || "").trim();
+  if (real) return real;
+  const xff = String(req.headers["x-forwarded-for"] || "").split(",").map(s => s.trim()).filter(Boolean);
+  return xff[xff.length - 1] || xff[0] || "unknown";
+};
+// E-Mail für Logs maskieren (nur erster Buchstabe + Domain) — keine PII im Klartext.
+export const maskEmail = (e) => { const s = String(e || ""); const i = s.indexOf("@"); return i < 1 ? "***" : s[0] + "***" + s.slice(i); };
 
 // Einfaches Rate-Limit (Redis-Counter pro Fenster) gegen Brute-Force.
 export async function rateLimit(key, max, windowSec) {
@@ -97,8 +118,7 @@ export async function sendMail(to, subject, html) {
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({ from, to, subject, html }),
     });
-    const body = await r.text();
-    console.log(`[mail] resend status=${r.status} from="${from}" to="${to}" resp=${body.slice(0, 300)}`);
+    console.log(`[mail] resend status=${r.status} to=${maskEmail(to)}`);
     return r.ok;
-  } catch (e) { console.log("[mail] resend fehler:", String(e).slice(0, 200)); return false; }
+  } catch (e) { console.log("[mail] resend fehler:", String(e).slice(0, 120)); return false; }
 }

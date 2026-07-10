@@ -23,6 +23,7 @@ export default async function handler(req, res) {
   const hash = await bcrypt.hash(password, 10);
   const recoveryCode = genRecovery();
   const recoveryHash = await bcrypt.hash(canon(recoveryCode), 10);
-  await redis.set(`user:${e}`, { email: e, hash, recoveryHash, createdAt: Date.now() });
-  return res.status(200).json({ token: makeToken(e), email: e, recoveryCode });
+  const now = Date.now();
+  await redis.set(`user:${e}`, { email: e, hash, recoveryHash, createdAt: now, pwdAt: now });
+  return res.status(200).json({ token: makeToken(e, now), email: e, recoveryCode });
 }

@@ -44,24 +44,31 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Das neue Passwort braucht mindestens 6 Zeichen." });
   const user = await redis.get(`user:${e}`);
 
+  // Fehlversuchszähler pro Konto: nach 5 falschen Code-Eingaben wird der Reset-
+  // Code invalidiert → verhindert Durchprobieren des 6-stelligen Codes (Brute-Force).
+  const failKey = `resetfail:${e}`;
+  const bumpFail = async () => { const n = await redis.incr(failKey); if (n === 1) await redis.expire(failKey, 900); if (n >= 5) await redis.del(`reset:${e}`); };
+
   if (action === "code") {
     if (!user || !user.recoveryHash) return res.status(401).json({ error: "E-Mail oder Code falsch." });
     const ok = await bcrypt.compare(canon(code), user.recoveryHash);
-    if (!ok) return res.status(401).json({ error: "Wiederherstellungs-Code falsch." });
+    if (!ok) { await bumpFail(); return res.status(401).json({ error: "Wiederherstellungs-Code falsch." }); }
   } else if (action === "email") {
     const stored = await redis.get(`reset:${e}`);
     if (!stored) return res.status(401).json({ error: "Code abgelaufen oder ungültig. Bitte neu anfordern." });
     const ok = await bcrypt.compare(String(code || "").trim(), stored);
-    if (!ok) return res.status(401).json({ error: "Code falsch." });
+    if (!ok) { await bumpFail(); return res.status(401).json({ error: "Code falsch." }); }
     if (!user) return res.status(401).json({ error: "Konto nicht gefunden." });
     await redis.del(`reset:${e}`);
   } else {
     return res.status(400).json({ error: "Unbekannte Aktion." });
   }
+  await redis.del(failKey);
 
   const hash = await bcrypt.hash(newPassword, 10);
   const recoveryCode = genRecovery();
   const recoveryHash = await bcrypt.hash(canon(recoveryCode), 10);
-  await redis.set(`user:${e}`, { ...user, hash, recoveryHash });
-  return res.status(200).json({ token: makeToken(e), email: e, recoveryCode });
+  const now = Date.now();  // pwdAt neu → alte JWTs werden ungültig
+  await redis.set(`user:${e}`, { ...user, hash, recoveryHash, pwdAt: now });
+  return res.status(200).json({ token: makeToken(e, now), email: e, recoveryCode });
 }

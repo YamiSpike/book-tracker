@@ -1,4 +1,4 @@
-import { getRedis, verifyToken, readBody } from "./_lib.js";
+import { getRedis, verifyPayload, readBody } from "./_lib.js";
 
 // Bücherdaten laden/speichern. Eigener Namespace (data:books:<email>), damit die
 // Daten der anderen Apps (Nihongo, Japan) NICHT überschrieben werden.
@@ -10,8 +10,13 @@ function dataKey(req, email) {
 export default async function handler(req, res) {
   const redis = getRedis();
   if (!redis) return res.status(503).json({ error: "Cloud-Sync ist noch nicht eingerichtet." });
-  const email = verifyToken(req);
-  if (!email) return res.status(401).json({ error: "Nicht angemeldet." });
+  const p = verifyPayload(req);
+  if (!p) return res.status(401).json({ error: "Nicht angemeldet." });
+  const email = p.email;
+  // Revoke-Prüfung: nach einem Passwort-Reset ausgestellte Tokens haben pv >= user.pwdAt;
+  // ältere Tokens werden dadurch ungültig (Token-Diebstahl-/Reset-Schutz).
+  const user = await redis.get(`user:${email}`);
+  if (user && (user.pwdAt || 0) > (p.pv || 0)) return res.status(401).json({ error: "Sitzung abgelaufen. Bitte neu anmelden." });
 
   const key = dataKey(req, email);
 

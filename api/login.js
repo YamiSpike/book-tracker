@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { getRedis, makeToken, readBody, norm, clientIp, rateLimit, authReady } from "./_lib.js";
+import { getRedis, makeToken, readBody, norm, clientIp, rateLimit, authReady, DUMMY_HASH } from "./_lib.js";
 
 // Anmeldung. Funktioniert mit demselben Konto wie die Nihongo-/Japan-App (geteilte user:<email>).
 export default async function handler(req, res) {
@@ -13,10 +13,12 @@ export default async function handler(req, res) {
   const { email, password } = readBody(req);
   const e = norm(email);
   const user = await redis.get(`user:${e}`);
-  if (!user || !user.hash) return res.status(401).json({ error: "E-Mail oder Passwort falsch." });
+  // Konstante Laufzeit: auch bei nicht existentem Konto einen bcrypt-Vergleich
+  // ausführen (gegen Dummy-Hash), damit die Antwortzeit keine Existenz verrät.
+  const hash = (user && user.hash) ? user.hash : DUMMY_HASH;
+  const ok = await bcrypt.compare(password || "", hash);
+  if (!user || !user.hash || !ok) return res.status(401).json({ error: "E-Mail oder Passwort falsch." });
 
-  const ok = await bcrypt.compare(password || "", user.hash);
-  if (!ok) return res.status(401).json({ error: "E-Mail oder Passwort falsch." });
-
-  return res.status(200).json({ token: makeToken(e), email: e });
+  const pv = user.pwdAt || user.createdAt || 0;
+  return res.status(200).json({ token: makeToken(e, pv), email: e });
 }
