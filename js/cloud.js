@@ -54,8 +54,13 @@
         out[k] = localStorage.getItem(k);
       }
     } catch (e) {}
+    // Bücher liegen seit v8 in IndexedDB (nicht mehr in localStorage) → aus dem Store holen
+    if (global.HonStore) out['bk_books'] = global.HonStore.getRaw();
     return out;
   }
+  function booksGetRaw() { return global.HonStore ? global.HonStore.getRaw() : lsGet('bk_books'); }
+  function booksSetRaw(str) { if (global.HonStore) global.HonStore.setRaw(str); else lsSet('bk_books', str); }
+  function booksClear() { if (global.HonStore && global.HonStore.clearBooks) global.HonStore.clearBooks(); else lsDel('bk_books'); }
 
   // Wertweises Mergen ohne Datenverlust:
   //  Arrays → Vereinigung (dedupliziert) · Objekte → remote-Basis, lokal gewinnt · sonst lokal behalten
@@ -104,7 +109,7 @@
     var skipData = false;
     if (rWipe > lWipe) {
       // Auf einem anderen Gerät gelöscht → hier ebenfalls löschen
-      DATA_KEYS.forEach(function (k) { lsDel(k); });
+      DATA_KEYS.forEach(function (k) { if (k === 'bk_books') booksClear(); else lsDel(k); });
       lsSet('bk_wipe', String(rWipe));
       skipData = true;
       changed = true;
@@ -119,10 +124,19 @@
       // Nach einem Wipe die Daten aus der Cloud NICHT zurückholen
       if (skipData && DATA_KEYS.indexOf(k) >= 0) return;
       var rv = remote[k]; if (typeof rv !== 'string') { try { rv = JSON.stringify(rv); } catch (e) { return; } }
+      // Bücher liegen im Store (IndexedDB), nicht in localStorage
+      if (k === 'bk_books') {
+        var lvb = booksGetRaw();
+        if (lvb == null || lvb === '[]' || lvb === '') { booksSetRaw(rv); changed = true; return; }
+        if (lvb === rv) return;
+        var mb = mergeBooks(lvb, rv);
+        if (mb !== lvb) { booksSetRaw(mb); changed = true; }
+        return;
+      }
       var lv = lsGet(k);
       if (lv === null) { if (lsSet(k, rv)) changed = true; return; }
       if (lv === rv) return;
-      var m = (k === 'bk_books') ? mergeBooks(lv, rv) : mergeValue(lv, rv);
+      var m = mergeValue(lv, rv);
       if (m !== lv && lsSet(k, m)) changed = true;
     });
     return changed;
@@ -132,10 +146,10 @@
   // sonst würden die Cloud-Daten sofort wieder hereingemerged.
   function wipe() {
     var now = Date.now();
-    DATA_KEYS.forEach(function (k) { lsDel(k); });
+    DATA_KEYS.forEach(function (k) { if (k === 'bk_books') booksClear(); else lsDel(k); });
     lsSet('bk_wipe', String(now));
     if (!isLoggedIn()) return Promise.resolve(true);
-    var snap = collectData();           // enthält jetzt kein bk_books mehr, aber bk_wipe
+    var snap = collectData();           // Bücher jetzt leer, aber bk_wipe gesetzt
     lastHash = fnv(JSON.stringify(snap));
     return push(snap);                  // redis.set überschreibt den kompletten Datensatz
   }
@@ -429,6 +443,12 @@
     start: start
   };
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
-  else start();
+  // Auto-Sync erst starten, wenn der IndexedDB-Speicher geladen ist — sonst würde der erste
+  // Push eine noch leere Sammlung hochladen und die Cloud-Daten überschreiben (Datenverlust!).
+  function boot() {
+    var ready = (global.HonStore && global.HonStore.ready) ? global.HonStore.ready : Promise.resolve();
+    ready.then(start, start);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
 })(window);

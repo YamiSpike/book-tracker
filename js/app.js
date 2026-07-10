@@ -14,9 +14,15 @@
   // Performance: Bücher werden EINMAL geparst und im RAM gehalten (bei 10.000+ Einträgen
   // ist wiederholtes JSON.parse der Haupt-Bremsklotz). Cache wird bei jeder Schreib-/Sync-Aktion invalidiert.
   var _booksCache = null, _byId = null, _libCache = null, _keySet = null;
+  // Bücher werden von js/store.js gehalten (IndexedDB, mit localStorage-Fallback).
+  // getRaw()/setRaw() sind synchron (RAM-Spiegel) — die Persistenz läuft async im Hintergrund.
+  function booksRaw() {
+    if (window.HonStore) return window.HonStore.getRaw();
+    try { return localStorage.getItem(LS_BOOKS) || '[]'; } catch (e) { return '[]'; }
+  }
   function loadBooks() {
     if (_booksCache) return _booksCache;
-    try { var a = JSON.parse(localStorage.getItem(LS_BOOKS) || '[]'); _booksCache = Array.isArray(a) ? a : []; }
+    try { var a = JSON.parse(booksRaw()); _booksCache = Array.isArray(a) ? a : []; }
     catch (e) { _booksCache = []; }
     return _booksCache;
   }
@@ -31,10 +37,12 @@
   function saveBooks(list) {
     _booksCache = list; _byId = null; _libCache = null; _keySet = null;
     try {
-      localStorage.setItem(LS_BOOKS, JSON.stringify(list));
+      var str = JSON.stringify(list);
+      if (window.HonStore) { window.HonStore.setRaw(str); }
+      else { localStorage.setItem(LS_BOOKS, str); }
       return true;
     } catch (e) {
-      // localStorage voll (~5 MB Limit) — Nutzer klar informieren statt still zu scheitern
+      // Speicher voll — Nutzer klar informieren statt still zu scheitern (bei IndexedDB praktisch nie)
       toast('⚠️ Speicher voll! Bitte Duplikate entfernen (⚙️ Mehr → Duplikate) oder Cloud-Sync nutzen.');
       return false;
     }
@@ -973,6 +981,8 @@
     var inp = m.querySelector('#resetConfirm'), go = m.querySelector('#resetGo');
     inp.addEventListener('input', function () { go.disabled = inp.value.trim().toUpperCase() !== 'LÖSCHEN'; });
     go.addEventListener('click', function () {
+      // Bücher liegen in IndexedDB → über den Store leeren
+      if (window.HonStore && window.HonStore.clearBooks) { window.HonStore.clearBooks(); }
       ['bk_books', 'bk_sessions', 'bk_achievements', 'bk_active_session', 'bk_last_reminder', 'bk_search_cache'].forEach(function (k) {
         try { localStorage.removeItem(k); } catch (e) {}
       });
@@ -2538,6 +2548,13 @@
     }
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-  else init();
+  // Erst starten, wenn der IndexedDB-Speicher geladen/migriert ist (sonst wäre die Sammlung kurz leer)
+  function boot() {
+    var ready = (window.HonStore && window.HonStore.ready) ? window.HonStore.ready : Promise.resolve();
+    ready.then(init, init);
+    // Vor dem Schließen die Bücher sicher persistieren (falls ein Schreibvorgang noch aussteht)
+    window.addEventListener('pagehide', function () { if (window.HonStore) window.HonStore.flush(); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
 })();
