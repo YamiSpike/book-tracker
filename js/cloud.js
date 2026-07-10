@@ -23,6 +23,10 @@
 
   // ───── State ─────
   var pushTimer = null, lastHash = null, lastSyncAt = 0, started = false;
+  // Delta-Sync: Snapshot der Feld-Hashes nach dem letzten erfolgreichen Push.
+  // Damit erkennt pushDelta(), WELCHE Sammlungen sich geändert haben, und lädt
+  // nur diese hoch (statt jedes Mal alles). null = noch kein Voll-Push passiert.
+  var lastFields = null;
 
   // ───── Helfer ─────
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -39,6 +43,12 @@
     var h = 0x811c9dc5;
     for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0; }
     return h.toString(16);
+  }
+  // Feld-für-Feld-Hashes eines Datensatzes (für Delta-Erkennung).
+  function fieldHashes(data) {
+    var o = {};
+    if (data) Object.keys(data).forEach(function (k) { o[k] = fnv(typeof data[k] === 'string' ? data[k] : JSON.stringify(data[k])); });
+    return o;
   }
 
   // ───── Datensammlung / -anwendung ─────
@@ -204,14 +214,38 @@
     });
   }
 
+  // VOLL-Push: kompletter Datensatz. Migriert serverseitig den alten Blob und
+  // setzt den Delta-Snapshot (lastFields), damit danach nur noch Deltas gehen.
   function push(data) {
     var t = getToken(); if (!t) return Promise.resolve(false);
+    var sent = data || collectData();
     return fetch(API + '/sync?app=' + APP, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
-      body: JSON.stringify({ data: data || collectData() })
+      body: JSON.stringify({ data: sent })
     }).then(function (res) {
       if (res.status === 401) { logout(); throw new Error('Sitzung abgelaufen — bitte neu anmelden.'); }
-      if (res.ok) { lastSyncAt = Date.now(); lsSet('bk_cloud_lastsync', String(lastSyncAt)); refreshStatusLine(); }
+      if (res.ok) { lastFields = fieldHashes(sent); lastSyncAt = Date.now(); lsSet('bk_cloud_lastsync', String(lastSyncAt)); refreshStatusLine(); }
+      return res.ok;
+    });
+  }
+
+  // DELTA-Push: nur geänderte Sammlungen (patch) + entfernte (remove) hochladen.
+  // Vor dem ersten erfolgreichen Voll-Push (lastFields==null) wird voll gepusht,
+  // damit die Server-Migration + ein vollständiger Ausgangsstand garantiert sind.
+  function pushDelta() {
+    var t = getToken(); if (!t) return Promise.resolve(false);
+    var cur = collectData();
+    if (!lastFields) return push(cur);
+    var ch = fieldHashes(cur), patch = {}, remove = [], any = false;
+    Object.keys(cur).forEach(function (k) { if (lastFields[k] !== ch[k]) { patch[k] = cur[k]; any = true; } });
+    Object.keys(lastFields).forEach(function (k) { if (!(k in cur)) { remove.push(k); any = true; } });
+    if (!any) return Promise.resolve(true); // nichts geändert
+    return fetch(API + '/sync?app=' + APP, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
+      body: JSON.stringify({ patch: patch, remove: remove })
+    }).then(function (res) {
+      if (res.status === 401) { logout(); throw new Error('Sitzung abgelaufen — bitte neu anmelden.'); }
+      if (res.ok) { lastFields = ch; lastSyncAt = Date.now(); lsSet('bk_cloud_lastsync', String(lastSyncAt)); refreshStatusLine(); }
       return res.ok;
     });
   }
@@ -239,7 +273,10 @@
     return pull().then(function (remote) {
       var changed = mergeApply(remote);
       lastHash = lightHash();
-      return push(collectData()).then(function () {
+      // pushDelta: beim ersten Mal (lastFields==null) voll (Migration/Baseline),
+      // danach nur geänderte Sammlungen → Gesamtdaten dürfen die 4-MB-Blob-Grenze
+      // überschreiten, solange jede EINZELNE Sammlung darunter bleibt.
+      return pushDelta().then(function () {
         if (changed && typeof global.BKCloudOnChange === 'function') {
           try { global.BKCloudOnChange(); } catch (e) {}
         }
@@ -254,7 +291,7 @@
     pushTimer = setTimeout(function () {
       var h = lightHash();
       if (h === lastHash) return;               // nichts geändert → nicht komprimieren, nicht pushen
-      push(collectData()).then(function (ok) { if (ok) lastHash = h; }).catch(function () {});
+      pushDelta().then(function (ok) { if (ok) lastHash = h; }).catch(function () {});
     }, PUSH_DEBOUNCE);
   }
 
@@ -467,7 +504,7 @@
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'hidden' && isLoggedIn()) {
         var hh = lightHash();
-        if (hh !== lastHash) push(collectData()).then(function (ok) { if (ok) lastHash = hh; }).catch(function () {});
+        if (hh !== lastHash) pushDelta().then(function (ok) { if (ok) lastHash = hh; }).catch(function () {});
       }
     });
   }
