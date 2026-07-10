@@ -11,20 +11,54 @@
   var GB = 'https://www.googleapis.com/books/v1/volumes';
 
   // ───── Storage ─────
+  // Performance: Bücher werden EINMAL geparst und im RAM gehalten (bei 10.000+ Einträgen
+  // ist wiederholtes JSON.parse der Haupt-Bremsklotz). Cache wird bei jeder Schreib-/Sync-Aktion invalidiert.
+  var _booksCache = null, _byId = null, _libCache = null, _keySet = null;
   function loadBooks() {
-    try { var a = JSON.parse(localStorage.getItem(LS_BOOKS) || '[]'); return Array.isArray(a) ? a : []; }
-    catch (e) { return []; }
+    if (_booksCache) return _booksCache;
+    try { var a = JSON.parse(localStorage.getItem(LS_BOOKS) || '[]'); _booksCache = Array.isArray(a) ? a : []; }
+    catch (e) { _booksCache = []; }
+    return _booksCache;
+  }
+  function invalidateBooks() { _booksCache = null; _byId = null; _libCache = null; _keySet = null; }
+  // bookKey-Set der Sammlung (gecacht) — schnelle „schon vorhanden?"-Prüfung bei Suchergebnissen
+  function libKeySet() {
+    if (_keySet) return _keySet;
+    _keySet = Object.create(null);
+    lib().forEach(function (x) { _keySet[bookKey(x)] = 1; });
+    return _keySet;
   }
   function saveBooks(list) {
-    try { localStorage.setItem(LS_BOOKS, JSON.stringify(list)); } catch (e) {}
+    _booksCache = list; _byId = null; _libCache = null; _keySet = null;
+    try {
+      localStorage.setItem(LS_BOOKS, JSON.stringify(list));
+      return true;
+    } catch (e) {
+      // localStorage voll (~5 MB Limit) — Nutzer klar informieren statt still zu scheitern
+      toast('⚠️ Speicher voll! Bitte Duplikate entfernen (⚙️ Mehr → Duplikate) oder Cloud-Sync nutzen.');
+      return false;
+    }
+  }
+  // ID-Index für O(1)-Zugriff statt linearer Suche (findInLib)
+  function bookIndex() {
+    if (_byId) return _byId;
+    _byId = Object.create(null);
+    var all = loadBooks();
+    for (var i = 0; i < all.length; i++) {
+      var b = all[i];
+      if (b && b.id && !b.deleted) _byId[b.id] = b;
+    }
+    return _byId;
   }
   // v4: Read-only-Modus für geteilte Sammlungen (?share=…)
   var sharedData = null;
 
-  // aktive Bücher (ohne Lösch-Tombstones, die nur für den Sync existieren)
+  // aktive Bücher (ohne Lösch-Tombstones, die nur für den Sync existieren) — Ergebnis gecacht
   function lib() {
     if (sharedData) return sharedData;
-    return loadBooks().filter(function (b) { return !b.deleted; });
+    if (_libCache) return _libCache;
+    _libCache = loadBooks().filter(function (b) { return !b.deleted; });
+    return _libCache;
   }
 
   function loadSettings() {
@@ -351,13 +385,11 @@
     return (b.title + '|' + (b.authors[0] || '')).toLowerCase().replace(/[^a-zäöüß0-9|]/g, '');
   }
   function inLib(b) {
-    var key = bookKey(b);
-    return lib().some(function (x) { return x.id === b.id || bookKey(x) === key; });
+    if (bookIndex()[b.id]) return true;
+    return !!libKeySet()[bookKey(b)];
   }
   function findInLib(id) {
-    var all = loadBooks();
-    for (var i = 0; i < all.length; i++) if (all[i].id === id && !all[i].deleted) return all[i];
-    return null;
+    return bookIndex()[id] || null;
   }
 
   // ───── Sammlung ändern ─────
@@ -424,7 +456,8 @@
       var pct = Math.min(100, Math.round(own.progress / own.pages * 100));
       prog = '<div class="card-progress" title="Seite ' + own.progress + ' von ' + own.pages + '"><i style="width:' + pct + '%"></i><span>' + pct + '%</span></div>';
     }
-    var kind = b.kind === 'manga' ? '<span class="kind-chip" title="Manga">🎌</span>' : '';
+    var kind = b.kind === 'manga' ? '<span class="kind-chip" title="Manga">🎌</span>'
+      : b.kind === 'magazin' ? '<span class="kind-chip" title="Zeitschrift">📰</span>' : '';
     return '<article class="card" data-id="' + esc(b.id) + '" data-src="' + esc(opts.src || 'lib') + '">'
       + chip + mark + kind + coverHtml(b)
       + reason
@@ -587,9 +620,9 @@
       }).join('');
       psel.style.display = Object.keys(pubs).length ? '' : 'none';
     }
-    // Typ-Filter nur zeigen, wenn Mangas dabei sind
-    var hasManga = books.some(function (b) { return b.kind === 'manga'; });
-    if ($('filterKind')) $('filterKind').style.display = hasManga ? '' : 'none';
+    // Typ-Filter nur zeigen, wenn gemischte Typen (Mangas/Zeitschriften) dabei sind
+    var hasSpecial = books.some(function (b) { return b.kind === 'manga' || b.kind === 'magazin'; });
+    if ($('filterKind')) $('filterKind').style.display = hasSpecial ? '' : 'none';
 
     // Genre-Filter-Optionen aktuell halten
     var genres = {};
@@ -615,7 +648,8 @@
       if (ge && !(b.categories || []).some(function (c) { return c.split('/')[0].trim() === ge; })) return false;
       if (tg && !(b.tags || []).some(function (t) { return t === tg; })) return false;
       if (kd === 'manga' && b.kind !== 'manga') return false;
-      if (kd === 'buch' && b.kind === 'manga') return false;
+      if (kd === 'magazin' && b.kind !== 'magazin') return false;
+      if (kd === 'buch' && (b.kind === 'manga' || b.kind === 'magazin')) return false;
       if (vl && b.publisher !== vl) return false;
       if (q) {
         var hay = (b.title + ' ' + (b.authors || []).join(' ') + ' ' + (b.note || '') + ' '
@@ -631,8 +665,265 @@
       if (sort === 'rating') return (b.rating || 0) - (a.rating || 0);
       return (b.addedAt || 0) - (a.addedAt || 0);
     });
-    $('libGrid').innerHTML = out.map(function (b) { return cardHtml(b, { showStatus: true }); }).join('');
+    // Treffer-Zähler (wichtig bei großen Sammlungen)
+    var cnt = $('libCount');
+    if (cnt) cnt.textContent = out.length === books.length
+      ? books.length.toLocaleString('de-DE') + ' Titel'
+      : out.length.toLocaleString('de-DE') + ' von ' + books.length.toLocaleString('de-DE') + ' Titeln';
+    // Virtualisiert rendern: nur die erste Charge, Rest per Infinite Scroll (hält das DOM klein → flüssig bei 10.000+)
+    libFiltered = out;
+    libShown = 0;
+    var grid = $('libGrid');
+    grid.innerHTML = '<div id="libSentinel" style="grid-column:1/-1;height:1px"></div>';
+    if (libObserver) libObserver.observe($('libSentinel'));
+    renderLibChunk();
     $('emptyLib').hidden = books.length > 0;
+  }
+
+  // ───── Virtualisiertes Sammlungs-Rendering ─────
+  var libFiltered = [], libShown = 0, LIB_BATCH = 48, libObserver = null;
+  function renderLibChunk() {
+    var sentinel = $('libSentinel');
+    if (!sentinel) return;
+    var end = Math.min(libShown + LIB_BATCH, libFiltered.length);
+    var html = '';
+    for (var i = libShown; i < end; i++) html += cardHtml(libFiltered[i], { showStatus: true });
+    sentinel.insertAdjacentHTML('beforebegin', html);
+    libShown = end;
+    if (libShown >= libFiltered.length) sentinel.style.display = 'none';
+    else sentinel.style.display = '';
+  }
+  function loadMoreLib() {
+    if (libShown >= libFiltered.length) return;
+    renderLibChunk();
+    // Auf großen Bildschirmen ggf. mehrere Chargen, bis der Sentinel aus dem Vorlade-Bereich ist
+    var s = $('libSentinel');
+    if (s && libShown < libFiltered.length) {
+      var r = s.getBoundingClientRect();
+      if (r.top < window.innerHeight + 700) requestAnimationFrame(loadMoreLib);
+    }
+  }
+  function initLibObserver() {
+    if (!('IntersectionObserver' in window)) return;
+    libObserver = new IntersectionObserver(function (entries) {
+      if (entries.some(function (e) { return e.isIntersecting; })) loadMoreLib();
+    }, { rootMargin: '700px 0px' });
+  }
+
+  // ───── v7: Duplikat-Erkennung & -Verwaltung ─────
+  // Dedup-Schlüssel: ISBN (falls vorhanden) ist eindeutig; sonst Titel+Autor normalisiert.
+  function dupKey(b) {
+    var isbn = (b.isbn || '').replace(/[^0-9Xx]/g, '');
+    if (isbn.length >= 10) return 'isbn:' + isbn;
+    return 'ta:' + bookKey(b);
+  }
+  function findDuplicateGroups() {
+    var groups = Object.create(null);
+    lib().forEach(function (b) {
+      var k = dupKey(b);
+      (groups[k] = groups[k] || []).push(b);
+    });
+    var out = [];
+    Object.keys(groups).forEach(function (k) {
+      if (groups[k].length > 1) {
+        // „Besten" Eintrag zum Behalten zuerst: mit Cover + Bewertung + frühestes addedAt
+        groups[k].sort(function (a, b) {
+          var sa = (a.cover ? 2 : 0) + (a.rating ? 1 : 0);
+          var sb = (b.cover ? 2 : 0) + (b.rating ? 1 : 0);
+          if (sb !== sa) return sb - sa;
+          return (a.addedAt || 0) - (b.addedAt || 0);
+        });
+        out.push(groups[k]);
+      }
+    });
+    return out;
+  }
+
+  // Hart löschen wenn keine Cloud aktiv (spart Platz), sonst Tombstone (überlebt Sync)
+  function deleteBooksByIds(ids) {
+    if (!ids.length) return 0;
+    var idSet = Object.create(null);
+    ids.forEach(function (id) { idSet[id] = 1; });
+    var cloudActive = false;
+    try { cloudActive = !!localStorage.getItem('bk_cloud_token'); } catch (e) {}
+    var all = loadBooks(), now = Date.now(), n = 0, out = [];
+    for (var i = 0; i < all.length; i++) {
+      var b = all[i];
+      if (idSet[b.id] && !b.deleted) {
+        n++;
+        if (cloudActive) out.push({ id: b.id, deleted: true, updatedAt: now });
+        // ohne Cloud: Eintrag komplett weglassen
+      } else out.push(b);
+    }
+    saveBooks(out);
+    return n;
+  }
+
+  function openDupModal() {
+    var groups = findDuplicateGroups();
+    var m = document.createElement('div');
+    m.className = 'admin-modal';
+    var total = groups.reduce(function (s, g) { return s + (g.length - 1); }, 0);
+    if (!groups.length) {
+      m.innerHTML = '<div class="admin-card"><div class="admin-head">🧹 Duplikate</div>'
+        + '<p class="admin-sub">Keine Duplikate gefunden — deine Sammlung ist sauber! ✨</p>'
+        + '<div class="admin-btns"><button class="btn-ghost" id="dupClose">Schließen</button></div></div>';
+      document.body.appendChild(m);
+      m.querySelector('#dupClose').addEventListener('click', function () { m.remove(); });
+      m.addEventListener('click', function (e) { if (e.target === m) m.remove(); });
+      return;
+    }
+    // Vorschau der ersten Gruppen (nicht alle rendern — könnten tausende sein)
+    var preview = groups.slice(0, 40).map(function (g) {
+      var keep = g[0], dups = g.slice(1);
+      return '<div class="dup-group"><div class="dup-keep">✓ behalten: <b>' + esc(keep.title) + '</b>'
+        + (keep.authors && keep.authors[0] ? ' <span class="muted">· ' + esc(keep.authors[0]) + '</span>' : '') + '</div>'
+        + '<div class="dup-remove">✕ ' + dups.length + ' Duplikat' + (dups.length > 1 ? 'e' : '') + ' entfernen</div></div>';
+    }).join('');
+    m.innerHTML = '<div class="admin-card"><div class="admin-head">🧹 Duplikate gefunden</div>'
+      + '<p class="admin-sub"><b>' + groups.length.toLocaleString('de-DE') + '</b> Titel sind mehrfach vorhanden — insgesamt <b>' + total.toLocaleString('de-DE') + '</b> Duplikate. Beim Bereinigen bleibt je Titel <b>ein</b> Exemplar (mit Cover/Bewertung bevorzugt).</p>'
+      + '<div class="dup-list">' + preview + (groups.length > 40 ? '<div class="muted" style="padding:8px 0">… und ' + (groups.length - 40).toLocaleString('de-DE') + ' weitere Gruppen</div>' : '') + '</div>'
+      + '<div class="admin-btns"><button class="btn-primary" id="dupGo">' + total.toLocaleString('de-DE') + ' Duplikate entfernen</button>'
+      + '<button class="btn-ghost" id="dupClose">Abbrechen</button></div></div>';
+    document.body.appendChild(m);
+    m.addEventListener('click', function (e) { if (e.target === m) m.remove(); });
+    m.querySelector('#dupClose').addEventListener('click', function () { m.remove(); });
+    m.querySelector('#dupGo').addEventListener('click', function () {
+      var ids = [];
+      groups.forEach(function (g) { g.slice(1).forEach(function (b) { ids.push(b.id); }); });
+      var n = deleteBooksByIds(ids);
+      m.remove();
+      recoBuiltFor = '';
+      refreshAll();
+      toast('🧹 ' + n.toLocaleString('de-DE') + ' Duplikate entfernt ✓');
+    });
+  }
+
+  // ───── v7: Fehlende Cover automatisch nachladen ─────
+  var coverAbort = false;
+  // Prüft per Bild-Ladung, ob ein Cover unter der URL existiert (kein CORS-Problem bei <img>)
+  function coverExists(url) {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      var done = false;
+      var t = setTimeout(function () { if (!done) { done = true; resolve(false); } }, 8000);
+      img.onload = function () { if (!done) { done = true; clearTimeout(t); resolve(img.naturalWidth > 2 && img.naturalHeight > 2); } };
+      img.onerror = function () { if (!done) { done = true; clearTimeout(t); resolve(false); } };
+      img.src = url;
+    });
+  }
+  // Cover-Quelle für ein Buch finden: erst OL-ISBN, dann OL-Titelsuche
+  function findCover(b) {
+    var isbn = (b.isbn || '').replace(/[^0-9Xx]/g, '');
+    var chain = Promise.resolve('');
+    if (isbn.length >= 10) {
+      var url = 'https://covers.openlibrary.org/b/isbn/' + isbn + '-M.jpg?default=false';
+      chain = coverExists(url).then(function (ok) { return ok ? ('https://covers.openlibrary.org/b/isbn/' + isbn + '-M.jpg') : ''; });
+    }
+    return chain.then(function (found) {
+      if (found) return found;
+      // Fallback: Open-Library-Titelsuche (CORS-frei, kein Kontingent)
+      var q = (b.title + ' ' + ((b.authors || [])[0] || '')).trim();
+      if (!q) return '';
+      return fetch('https://openlibrary.org/search.json?q=' + encodeURIComponent(q) + '&limit=1&fields=cover_i')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          var ci = j && j.docs && j.docs[0] && j.docs[0].cover_i;
+          return ci ? ('https://covers.openlibrary.org/b/id/' + ci + '-M.jpg') : '';
+        }).catch(function () { return ''; });
+    });
+  }
+  // Cover gesammelt anwenden (EIN saveBooks pro Block — nicht pro Buch, sonst O(n²) beim Speichern)
+  function applyCovers(coverMap) {
+    var all = loadBooks(), changed = false, now = Date.now();
+    for (var i = 0; i < all.length; i++) {
+      if (coverMap[all[i].id] && !all[i].cover) {
+        all[i] = Object.assign({}, all[i], { cover: coverMap[all[i].id], updatedAt: now });
+        changed = true;
+      }
+    }
+    if (changed) saveBooks(all);
+  }
+  function reloadMissingCovers() {
+    var missing = lib().filter(function (b) { return !b.cover && (b.isbn || b.title); });
+    if (!missing.length) { toast('Alle Einträge haben schon ein Cover ✨'); return; }
+    var LIMIT = 800;
+    var todo = missing.slice(0, LIMIT);
+    coverAbort = false;
+
+    var m = document.createElement('div');
+    m.className = 'admin-modal';
+    m.innerHTML = '<div class="admin-card"><div class="admin-head">🖼️ Cover werden geladen…</div>'
+      + '<p class="admin-sub" id="coverProg">0 / ' + todo.length.toLocaleString('de-DE') + ' geprüft · 0 gefunden</p>'
+      + '<div class="cover-bar"><i id="coverBarFill"></i></div>'
+      + '<div class="admin-btns"><button class="btn-ghost" id="coverStop">Stopp &amp; speichern</button></div></div>';
+    document.body.appendChild(m);
+    m.querySelector('#coverStop').addEventListener('click', function () { coverAbort = true; });
+
+    var idx = 0, done = 0, found = 0, pending = {}, CONC = 5;
+    function flush() { applyCovers(pending); pending = {}; }
+    function upd() {
+      var p = m.querySelector('#coverProg'), bar = m.querySelector('#coverBarFill');
+      if (p) p.textContent = done.toLocaleString('de-DE') + ' / ' + todo.length.toLocaleString('de-DE') + ' geprüft · ' + found + ' gefunden';
+      if (bar) bar.style.width = Math.round(done / todo.length * 100) + '%';
+    }
+    function finish() {
+      flush();
+      if (m.parentNode) m.remove();
+      recoBuiltFor = '';
+      refreshAll();
+      toast('🖼️ ' + found + ' Cover ergänzt' + (coverAbort ? ' (abgebrochen)' : '') + ' ✓');
+    }
+    function worker() {
+      if (coverAbort || idx >= todo.length) {
+        if (idx >= todo.length || coverAbort) { active--; if (active <= 0) finish(); }
+        return;
+      }
+      var b = todo[idx++];
+      findCover(b).then(function (url) {
+        if (url) { pending[b.id] = url; found++; }
+        done++;
+        if (found && found % 40 === 0) flush();
+        if (done % 10 === 0) upd();
+        worker();
+      });
+    }
+    var active = CONC;
+    for (var w = 0; w < CONC; w++) worker();
+  }
+
+  // DB komplett leeren (mit Sicherheitsabfrage)
+  function openResetModal() {
+    var m = document.createElement('div');
+    m.className = 'admin-modal';
+    var cloudActive = false;
+    try { cloudActive = !!localStorage.getItem('bk_cloud_token'); } catch (e) {}
+    m.innerHTML = '<div class="admin-card"><div class="admin-head">🗑️ Komplette Sammlung löschen</div>'
+      + '<p class="admin-sub">Das entfernt <b>alle</b> Bücher, Mangas, Zeitschriften, Notizen, Zitate, Sessions und Erfolge auf diesem Gerät '
+      + (cloudActive ? '<b>und in der Cloud</b> (also auf allen Geräten)' : '') + '. Das kann nicht rückgängig gemacht werden.</p>'
+      + '<p class="admin-sub">Tippe zum Bestätigen <b>LÖSCHEN</b> ein:</p>'
+      + '<input id="resetConfirm" class="admin-input" type="text" autocapitalize="characters" placeholder="LÖSCHEN" />'
+      + '<div class="admin-btns"><button class="btn-danger" id="resetGo" disabled>Endgültig löschen</button>'
+      + '<button class="btn-ghost" id="resetClose">Abbrechen</button></div></div>';
+    document.body.appendChild(m);
+    m.addEventListener('click', function (e) { if (e.target === m) m.remove(); });
+    m.querySelector('#resetClose').addEventListener('click', function () { m.remove(); });
+    var inp = m.querySelector('#resetConfirm'), go = m.querySelector('#resetGo');
+    inp.addEventListener('input', function () { go.disabled = inp.value.trim().toUpperCase() !== 'LÖSCHEN'; });
+    go.addEventListener('click', function () {
+      ['bk_books', 'bk_sessions', 'bk_achievements', 'bk_active_session', 'bk_last_reminder', 'bk_search_cache'].forEach(function (k) {
+        try { localStorage.removeItem(k); } catch (e) {}
+      });
+      invalidateBooks();
+      // Bei aktivem Cloud-Sync die leere Sammlung hochschieben, damit sie überall verschwindet
+      if (cloudActive && window.BKCloud && window.BKCloud.syncNow) {
+        try { window.BKCloud.syncNow({}); } catch (e) {}
+      }
+      m.remove();
+      recoBuiltFor = '';
+      refreshAll();
+      toast('🗑️ Sammlung komplett gelöscht.');
+    });
   }
 
   // ───── Empfehlungs-Engine ─────
@@ -906,11 +1197,66 @@
       + '<div class="quotes-head">✍️ Zitate <span class="muted">(' + qs.length + ')</span></div>'
       + qs.map(function (q, i) {
         return '<div class="quote-item"><span class="quote-mark">„</span><span class="quote-text">' + esc(q.text) + '"</span>'
+          + '<button class="quote-img" data-qimg="' + i + '" aria-label="Als Bild teilen" title="Als Bild speichern">🖼️</button>'
           + '<button class="quote-del" data-qi="' + i + '" aria-label="Zitat löschen">🗑</button></div>';
       }).join('')
       + '<div class="quote-add"><textarea id="quoteInput" placeholder="Lieblingszitat aus dem Buch…" rows="2"></textarea>'
       + '<button class="btn-ghost" id="quoteAddBtn">+ Zitat speichern</button></div>'
       + '</div>';
+  }
+
+  // v7: Lesetagebuch — datierte Fortschritts-/Gedanken-Einträge pro Buch
+  function journalHtml(own) {
+    var js = (own.journal || []).slice().sort(function (a, b) { return b.date - a.date; });
+    return '<div class="journal-block">'
+      + '<div class="quotes-head">📓 Lesetagebuch <span class="muted">(' + js.length + ')</span></div>'
+      + (js.length ? '<div class="journal-timeline">' + js.map(function (e, i) {
+          return '<div class="journal-item"><div class="journal-dot"></div>'
+            + '<div class="journal-body"><div class="journal-meta">' + fmtDate(e.date)
+            + (e.page ? ' · Seite ' + e.page : '') + '</div>'
+            + (e.text ? '<div class="journal-text">' + esc(e.text) + '</div>' : '')
+            + '<button class="journal-del" data-ji="' + (own.journal.length - 1 - i) + '" aria-label="Eintrag löschen">🗑</button></div></div>';
+        }).join('') + '</div>' : '')
+      + '<div class="journal-add">'
+      + '<input id="journalPage" type="number" inputmode="numeric" placeholder="Seite" value="' + (own.progress || '') + '" />'
+      + '<textarea id="journalText" placeholder="Gedanke zum Leseverlauf…" rows="2"></textarea>'
+      + '<button class="btn-ghost" id="journalAddBtn">+ Eintrag</button></div>'
+      + '</div>';
+  }
+
+  // v7: Zitat als schöne Bild-Karte exportieren (Canvas)
+  function exportQuoteImage(text, title, author) {
+    var W = 1080, H = 1080;
+    var c = document.createElement('canvas'); c.width = W; c.height = H;
+    var x = c.getContext('2d');
+    var g = x.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, '#2a1f16'); g.addColorStop(1, '#120c08');
+    x.fillStyle = g; x.fillRect(0, 0, W, H);
+    x.strokeStyle = 'rgba(245,201,107,.35)'; x.lineWidth = 4; x.strokeRect(40, 40, W - 80, H - 80);
+    x.fillStyle = '#f5c96b'; x.font = '140px Georgia, serif'; x.textAlign = 'left';
+    x.fillText('„', 80, 230);
+    // Zitat umbrechen
+    x.fillStyle = '#fdf6e3'; x.textAlign = 'center';
+    var size = text.length > 220 ? 40 : text.length > 120 ? 50 : 62;
+    x.font = size + 'px Georgia, serif';
+    var words = text.split(' '), lines = [], line = '';
+    words.forEach(function (w) {
+      if (x.measureText(line + w + ' ').width > W - 200 && line) { lines.push(line.trim()); line = ''; }
+      line += w + ' ';
+    });
+    if (line.trim()) lines.push(line.trim());
+    lines = lines.slice(0, 10);
+    var lh = size + 18, startY = H / 2 - (lines.length - 1) * lh / 2;
+    lines.forEach(function (ln, i) { x.fillText(ln, W / 2, startY + i * lh); });
+    x.fillStyle = '#f5c96b'; x.font = '34px Georgia, serif';
+    x.fillText('— ' + (title || ''), W / 2, H - 170);
+    if (author) { x.fillStyle = '#b8a892'; x.font = '28px system-ui, sans-serif'; x.fillText(author, W / 2, H - 125); }
+    x.fillStyle = '#82715c'; x.font = '24px system-ui, sans-serif'; x.fillText('Hon 本 · Bücher Tracker', W / 2, H - 60);
+    var a = document.createElement('a');
+    a.href = c.toDataURL('image/png');
+    a.download = 'zitat-' + (title || 'buch').replace(/[^a-z0-9]/gi, '-').slice(0, 30).toLowerCase() + '.png';
+    a.click();
+    toast('Zitat-Bild gespeichert 🖼️');
   }
 
   // ───── Detail-Modal ─────
@@ -924,6 +1270,10 @@
       facts.push('🎌 Manga');
       if (b.volumes) facts.push(b.volumes + ' Bände');
       if (b.chapters) facts.push(b.chapters + ' Kapitel');
+    }
+    if (b.kind === 'magazin') {
+      facts.push('📰 Zeitschrift');
+      if (b.issue) facts.push('Ausgabe ' + b.issue);
     }
     if (b.publisher) facts.push('🏢 ' + b.publisher);
     if (own && own.format && FORMAT_LBL[own.format]) facts.push(FORMAT_LBL[own.format]);
@@ -989,6 +1339,7 @@
           + '<input id="tagsInput" type="text" placeholder="z. B. Klassiker, Urlaub 2026" value="' + esc((own.tags || []).join(', ')) + '" /></div>'
         + '<div style="padding:8px 18px 0"><textarea class="note-area" id="noteArea" placeholder="Deine Notizen zu diesem Buch…">' + esc(own.note || '') + '</textarea></div>'
         + quotesHtml(own)
+        + journalHtml(own)
         : '')
       + shopLinksHtml(b)
       + '<div class="detail-body">'
@@ -1128,6 +1479,40 @@
         openDetail(b);
       });
     });
+    // v7: Zitat als Bild teilen
+    inner.querySelectorAll('.quote-img').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var cur = findInLib(b.id);
+        var q = (cur && cur.quotes || [])[parseInt(btn.dataset.qimg, 10)];
+        if (q) exportQuoteImage(q.text, b.title, (b.authors || [])[0] || '');
+      });
+    });
+
+    // v7: Lesetagebuch
+    var ja = inner.querySelector('#journalAddBtn');
+    if (ja) ja.addEventListener('click', function () {
+      var pageEl = inner.querySelector('#journalPage'), txtEl = inner.querySelector('#journalText');
+      var txt = (txtEl.value || '').trim();
+      var page = parseInt(pageEl.value, 10) || 0;
+      if (!txt && !page) { toast('Bitte Seite oder einen Gedanken eintragen.'); return; }
+      var cur = findInLib(b.id);
+      var jr = (cur && cur.journal || []).concat([{ date: Date.now(), page: page, text: txt.slice(0, 400) }]);
+      var patch = { journal: jr };
+      // Seite gleich als Fortschritt übernehmen, wenn plausibel
+      if (page > 0 && page <= (b.pages || 99999) && cur && cur.status === 'reading') patch.progress = page;
+      patchBook(b.id, patch);
+      toast('📓 Tagebuch-Eintrag gespeichert');
+      openDetail(b);
+    });
+    inner.querySelectorAll('.journal-del').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var cur = findInLib(b.id);
+        var jr = (cur && cur.journal || []).slice();
+        jr.splice(parseInt(btn.dataset.ji, 10), 1);
+        patchBook(b.id, { journal: jr });
+        openDetail(b);
+      });
+    });
 
     // Open-Library-Bücher: Beschreibung lazy nachladen (steckt im Works-Endpoint)
     if (!b.desc && b.olKey) {
@@ -1172,7 +1557,7 @@
     if (currentTab === 'stats') renderStats();
   }
   // Cloud hat Daten geändert → UI aktualisieren (statt Reload)
-  window.BKCloudOnChange = function () { recoBuiltFor = ''; refreshAll(); toast('☁️ Von der Cloud aktualisiert'); };
+  window.BKCloudOnChange = function () { invalidateBooks(); recoBuiltFor = ''; refreshAll(); toast('☁️ Von der Cloud aktualisiert'); };
 
   // ───── Schnittstelle fürs Maskottchen (js/mascot.js) ─────
   function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
@@ -1235,15 +1620,19 @@
         var arr = Array.isArray(j) ? j : (j.books || []);
         if (!Array.isArray(arr)) throw new Error('Format');
         var all = loadBooks(), added = 0;
+        // ID-Index einmal aufbauen → O(n) statt O(n²) bei großen Backups
+        var byId = Object.create(null);
+        for (var i = 0; i < all.length; i++) byId[all[i].id] = i;
         arr.forEach(function (b) {
           if (!b || !b.id || !b.title) return;
-          var idx = all.findIndex(function (x) { return x.id === b.id; });
-          if (idx >= 0) { if ((b.updatedAt || 0) > (all[idx].updatedAt || 0)) all[idx] = b; }
-          else { all.push(b); added++; }
+          var idx = byId[b.id];
+          if (idx !== undefined) { if ((b.updatedAt || 0) > (all[idx].updatedAt || 0)) all[idx] = b; }
+          else { byId[b.id] = all.length; all.push(b); added++; }
         });
         saveBooks(all);
+        recoBuiltFor = '';
         refreshAll();
-        toast(added + ' Bücher importiert ✓');
+        toast(added.toLocaleString('de-DE') + ' Titel importiert ✓');
       } catch (e) { toast('Import fehlgeschlagen — keine gültige Backup-Datei'); }
     };
     rd.readAsText(file);
@@ -1283,20 +1672,25 @@
         if (iT < 0) throw new Error('Kein Goodreads-Format (Spalte „Title" fehlt)');
         var all = loadBooks(), added = 0, now = Date.now();
         var shelfMap = { 'read': 'read', 'currently-reading': 'reading', 'to-read': 'want' };
+        // ID- und bookKey-Sets einmal aufbauen → O(n) statt O(n²); dedupliziert auch INNERHALB der CSV
+        var idSet = Object.create(null), keySet = Object.create(null);
+        for (var i = 0; i < all.length; i++) { idSet[all[i].id] = 1; if (!all[i].deleted) keySet[bookKey(all[i])] = 1; }
         rows.slice(1).forEach(function (r) {
           var title = (r[iT] || '').trim();
           if (!title) return;
           var isbn = iI >= 0 ? (r[iI] || '').replace(/[^0-9Xx]/g, '') : '';
           var author = iA >= 0 ? (r[iA] || '').trim() : '';
           var id = 'gr-' + (isbn || (title + '|' + author).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40));
-          if (all.some(function (x) { return x.id === id; })) return;
+          if (idSet[id]) return;
           var key = (title + '|' + author).toLowerCase().replace(/[^a-zäöüß0-9|]/g, '');
-          if (all.some(function (x) { return !x.deleted && bookKey(x) === key; })) return;
+          if (keySet[key]) return;
+          idSet[id] = 1; keySet[key] = 1;
           var dateRead = iD >= 0 && r[iD] ? new Date(r[iD]).getTime() || 0 : 0;
           var status = shelfMap[(iS >= 0 ? r[iS] : 'read').trim()] || 'read';
           all.push({
             id: id, title: title, authors: author ? [author] : [],
-            cover: isbn ? ('https://covers.openlibrary.org/b/isbn/' + isbn + '-M.jpg') : '',
+            // ?default=false → wenn Open Library kein Cover hat, greift der schöne Fallback statt Blindbild
+            cover: isbn ? ('https://covers.openlibrary.org/b/isbn/' + isbn + '-M.jpg?default=false') : '',
             year: '', pages: iP >= 0 ? (parseInt(r[iP], 10) || 0) : 0,
             categories: [], desc: '', lang: '', isbn: isbn, gRating: 0,
             status: status, rating: iR >= 0 ? (parseInt(r[iR], 10) || 0) : 0,
@@ -1308,8 +1702,9 @@
           added++;
         });
         saveBooks(all);
+        recoBuiltFor = '';
         refreshAll();
-        toast('📥 ' + added + ' Bücher aus Goodreads importiert ✓');
+        toast('📥 ' + added.toLocaleString('de-DE') + ' Titel aus CSV importiert ✓');
       } catch (e) { toast('Import fehlgeschlagen: ' + e.message); }
     };
     rd.readAsText(file);
@@ -1499,42 +1894,54 @@
       + '<h3>✍️ Eigenes Buch erfassen</h3>'
       + '<p class="muted" style="margin:0 0 12px">Für Titel, die in keiner Quelle stehen. * = Pflichtfeld.</p>'
       + '<input class="mf" id="mfTitle" placeholder="Titel *" />'
-      + '<input class="mf" id="mfAuthor" placeholder="Autor·in" />'
-      + '<div class="mf-row"><select class="mf" id="mfKind"><option value="buch">📚 Buch</option><option value="manga">🎌 Manga</option></select>'
+      + '<input class="mf" id="mfAuthor" placeholder="Autor·in / Redaktion" />'
+      + '<div class="mf-row"><select class="mf" id="mfKind"><option value="buch">📚 Buch</option><option value="manga">🎌 Manga</option><option value="magazin">📰 Zeitschrift</option></select>'
       + '<select class="mf" id="mfStatus"><option value="read">✓ Gelesen</option><option value="reading">📖 Lese gerade</option><option value="want">🔖 Will lesen</option></select></div>'
       + '<div class="mf-row"><input class="mf" id="mfPages" type="number" inputmode="numeric" placeholder="Seiten" />'
       + '<input class="mf" id="mfYear" type="number" inputmode="numeric" placeholder="Jahr" /></div>'
+      + '<input class="mf" id="mfIssue" placeholder="Ausgabe / Nr. (z. B. 08/2026)" style="display:none" />'
       + '<input class="mf" id="mfPublisher" placeholder="Verlag" />'
-      + '<input class="mf" id="mfGenre" placeholder="Genre (z. B. Fantasy)" />'
+      + '<input class="mf" id="mfGenre" placeholder="Genre / Thema (z. B. Fantasy, Wissen)" />'
       + '<input class="mf" id="mfCover" placeholder="Cover-Bild-URL (optional)" />'
       + '<button class="btn-primary" id="mfSave" style="width:100%;margin-top:6px">Zur Sammlung hinzufügen</button></div>';
     document.body.appendChild(m);
     var close = function () { m.remove(); };
     m.querySelector('.manual-close').addEventListener('click', close);
     m.addEventListener('click', function (e) { if (e.target === m) close(); });
+    // Ausgabe-Feld nur bei Zeitschriften zeigen
+    var kindSel = m.querySelector('#mfKind'), issueEl = m.querySelector('#mfIssue');
+    kindSel.addEventListener('change', function () {
+      issueEl.style.display = kindSel.value === 'magazin' ? '' : 'none';
+      m.querySelector('h3').textContent = kindSel.value === 'magazin' ? '📰 Zeitschrift erfassen'
+        : kindSel.value === 'manga' ? '🎌 Manga erfassen' : '✍️ Eigenes Buch erfassen';
+    });
     m.querySelector('#mfSave').addEventListener('click', function () {
       var title = (m.querySelector('#mfTitle').value || '').trim();
       if (!title) { toast('Bitte einen Titel eingeben.'); m.querySelector('#mfTitle').focus(); return; }
       var author = (m.querySelector('#mfAuthor').value || '').trim();
-      var kind = m.querySelector('#mfKind').value;
+      var kind = kindSel.value;
       var genre = (m.querySelector('#mfGenre').value || '').trim();
+      var issue = (issueEl.value || '').trim();
       var cover = (m.querySelector('#mfCover').value || '').trim();
       if (cover && !/^https:\/\//.test(cover)) cover = '';
+      var catPrefix = kind === 'manga' ? 'Manga / ' : kind === 'magazin' ? 'Zeitschrift / ' : '';
+      var displayTitle = (kind === 'magazin' && issue) ? (title + ' · ' + issue) : title;
       var book = {
         id: 'manual-' + Date.now(),
-        title: title, authors: author ? [author] : [],
+        title: displayTitle, authors: author ? [author] : [],
         cover: cover, year: (m.querySelector('#mfYear').value || '').slice(0, 4),
         pages: parseInt(m.querySelector('#mfPages').value, 10) || 0,
-        categories: genre ? [(kind === 'manga' ? 'Manga / ' : '') + genre] : [],
+        categories: genre ? [catPrefix + genre] : [],
         desc: '', lang: 'de', isbn: '', publisher: (m.querySelector('#mfPublisher').value || '').trim(),
-        gRating: 0
+        issue: issue, gRating: 0
       };
       if (kind === 'manga') book.kind = 'manga';
+      if (kind === 'magazin') book.kind = 'magazin';
       // Dubletten-Check
-      if (inLib(book)) { toast('„' + title + '" ist bereits in deiner Sammlung.'); return; }
+      if (inLib(book)) { toast('„' + displayTitle + '" ist bereits in deiner Sammlung.'); return; }
       upsertBook(book, m.querySelector('#mfStatus').value);
       close();
-      toast('✓ „' + title + '" hinzugefügt');
+      toast('✓ „' + displayTitle + '" hinzugefügt');
       openDetail(findInLib(book.id) || book);
     });
     setTimeout(function () { m.querySelector('#mfTitle').focus(); }, 50);
@@ -1885,6 +2292,14 @@
   // ───── Init ─────
   function init() {
     applySettings();
+    initLibObserver();
+    // Scroll-Fallback für Browser ohne IntersectionObserver
+    if (!('IntersectionObserver' in window)) {
+      window.addEventListener('scroll', function () {
+        if (currentTab !== 'sammlung' || libShown >= libFiltered.length) return;
+        if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 700) loadMoreLib();
+      }, { passive: true });
+    }
     refreshAll();
     renderHome();
 
@@ -1934,6 +2349,7 @@
       $(id).addEventListener('change', renderLib);
     });
     $('exportBtn').addEventListener('click', exportJson);
+    $('dupBtn').addEventListener('click', openDupModal);
 
     // Empfehlungen
     $('recoRefresh').addEventListener('click', function () { renderReco(true); });
@@ -1979,7 +2395,12 @@
     $('scanBtn').addEventListener('click', startScanner);
     $('rollBtn').addEventListener('click', rollNext);
     $('filterTag').addEventListener('change', renderLib);
-    $('libSearch').addEventListener('input', renderLib);
+    // Live-Suche entprellt (bei großen Sammlungen nicht bei jedem Tastendruck neu filtern)
+    var libSearchTimer = null;
+    $('libSearch').addEventListener('input', function () {
+      clearTimeout(libSearchTimer);
+      libSearchTimer = setTimeout(renderLib, 180);
+    });
 
     // v4: laufende Lese-Session wiederherstellen + Erfolge prüfen
     renderTimerBar();
@@ -2022,6 +2443,11 @@
       e.target.value = '';
     });
     $('setGrExport').addEventListener('click', exportGoodreadsCsv);
+
+    // v7: Aufräumen — Duplikate, Cover, DB-Reset
+    $('setDup').addEventListener('click', openDupModal);
+    $('setCovers').addEventListener('click', reloadMissingCovers);
+    $('setReset').addEventListener('click', openResetModal);
 
     // Einstellungen: Cloud + Daten
     $('cloud-open-btn').addEventListener('click', function () { if (window.BKCloud) window.BKCloud.openModal(); });

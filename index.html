@@ -138,9 +138,10 @@
       <option value="dnf">🚫 Abgebrochen</option>
     </select>
     <select id="filterKind" class="select-mini" aria-label="Typ" style="display:none">
-      <option value="">Bücher &amp; Mangas</option>
+      <option value="">Alle Typen</option>
       <option value="buch">📚 Nur Bücher</option>
       <option value="manga">🎌 Nur Mangas</option>
+      <option value="magazin">📰 Nur Zeitschriften</option>
     </select>
     <select id="filterGenre" class="select-mini" aria-label="Genre"><option value="">Alle Genres</option></select>
     <select id="filterPublisher" class="select-mini" aria-label="Verlag" style="display:none"><option value="">Alle Verlage</option></select>
@@ -152,8 +153,10 @@
       <option value="rating">Sortierung: Bewertung</option>
     </select>
     <button class="btn-ghost" id="rollBtn">🎲 Was lese ich als Nächstes?</button>
+    <button class="btn-ghost" id="dupBtn">🧹 Duplikate</button>
     <button class="btn-ghost" id="exportBtn">Export JSON</button>
   </div>
+  <div class="lib-count" id="libCount"></div>
   <div class="grid" id="libGrid"></div>
   <div id="emptyLib" class="empty" hidden>
     <div class="big">🗄️</div>
@@ -281,6 +284,29 @@
       <button class="btn-ghost" id="setShare">🔗 Link erstellen</button>
     </div>
 
+    <h3>🧹 Sammlung aufräumen</h3>
+    <div class="setting-row">
+      <div>
+        <strong>Duplikate finden &amp; entfernen</strong>
+        <p class="muted">Erkennt mehrfach vorhandene Titel (nach ISBN bzw. Titel + Autor·in) und entfernt sie auf einen Klick — je Titel bleibt ein Exemplar.</p>
+      </div>
+      <button class="btn-ghost" id="setDup">🧹 Duplikate prüfen</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <strong>Fehlende Cover automatisch laden</strong>
+        <p class="muted">Lädt für Einträge ohne Bild passende Cover per ISBN/Titel nach (Open Library &amp; Google Books). Läuft im Hintergrund.</p>
+      </div>
+      <button class="btn-ghost" id="setCovers">🖼️ Cover nachladen</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <strong>Komplette Sammlung löschen</strong>
+        <p class="muted">Setzt die Datenbank vollständig zurück (mit Sicherheitsabfrage). Bei aktivem Cloud-Sync auch auf allen Geräten.</p>
+      </div>
+      <button class="btn-danger" id="setReset">🗑️ Alles löschen</button>
+    </div>
+
     <h3>🔔 Erinnerung</h3>
     <div class="setting-row">
       <div>
@@ -305,6 +331,8 @@
         <p class="muted" style="margin:0;">Lesestatus (Gelesen / Lese gerade / Will lesen) · 5-Sterne-Bewertung · Persönliche Notizen · 📷 ISBN-Barcode-Scanner (Kamera, auch iPhone/iPad dank ZXing-Fallback + manuelle Eingabe) · Lese-Fortschritt in Seiten mit Balken (letzte Seite = automatisch „Gelesen") · Eigene Regale/Tags · ✍️ Zitate-Sammlung pro Buch · Genre-, Status- &amp; Tag-Filter · Sortierung · ✍️ Eigene Bücher/Mangas manuell erfassen (Dubletten-Check) · 🚫 Status „Abgebrochen" (DNF) mit Grund · 📕 Format (Print/E-Book/Hörbuch) · 🔗 „Ähnliche finden" pro Titel · 🎲 „Was lese ich als Nächstes?"-Zufallsrad (⭐-Priorität wird bevorzugt) · 🔍 Live-Suche in der eigenen Sammlung (auch Notizen &amp; Zitate) · 🔁 Re-Read-Zähler (zählt für die Challenge) · Entfernen mit Sync-fähigen Löschungen</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Lese-Challenge &amp; Tagebuch</p>
         <p class="muted" style="margin:0;">🧭 Stimmungs-Picker „Worauf hast du Lust?" · 🎯 Fertig-Prognose bei „Lese gerade" (Restzeit aus Timer-Tempo/Startdatum) · 💡 Bildschirm bleibt beim Lese-Timer an (Wake Lock) · 🎯 Jahres-Leseziel mit Fortschrittsring auf der Startseite · Automatisches Lese-Tagebuch (Start-/Enddatum je Buch) · 🔥 Aktivitäts-Heatmap (26 Wochen) · Zitat des Tages · 📚 Buchreihen-Erkennung mit fehlenden Bänden · ⏱️ Lese-Timer mit Sessions &amp; Lesezeit-Statistik · 🏆 12 Erfolge/Abzeichen · 📚 Jahresrückblick als speicherbares Bild · 📅 Erscheinungs-Radar für Wunschbücher · 🔔 Tägliche Lese-Erinnerung · ≈ Bibliotheks-Wert</p>
+        <p class="muted" style="font-weight:700;margin:8px 0 2px;">Große Sammlungen &amp; Aufräumen</p>
+        <p class="muted" style="margin:0;">⚡ Flüssig auch bei ~10.000 Titeln (virtualisierte Liste, im RAM gecachte Datenbank) · Treffer-Zähler · 🧹 Duplikat-Erkennung (nach ISBN bzw. Titel + Autor·in) mit Ein-Klick-Bereinigung (je Titel bleibt eins) · 🖼️ Fehlende Cover automatisch nachladen (Open Library, gedrosselt, mit Fortschritt) · 🗑️ Komplette Sammlung zurücksetzen (mit Sicherheitsabfrage) · schneller Massen-Import (CSV/JSON) · Speicher-voll-Warnung · 📰 Zeitschriften als eigener Typ mit Verlag &amp; Ausgabe · 📓 Lesetagebuch (datierte Einträge) · 🖼️ Zitate als teilbare Bild-Karten</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Empfehlungen</p>
         <p class="muted" style="margin:0;">Personalisierte Buch-Tipps aus deiner Sammlung (Lieblings-Genres, -Autor·innen, Bewertungen) · Begründung pro Empfehlung · Lese-Tipp auf der Startseite</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Statistik</p>
@@ -315,7 +343,7 @@
         <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Kerzenlicht-Glühen im Hero · Gestaffelte Karten-Animationen · Cover-Zoom &amp; Glanz-Effekt · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata) · 🌗 Auto-Theme nach Systemeinstellung</p>
       </div>
     </details>
-    <p class="muted" style="font-size:12px;margin-top:8px;">Version v6</p>
+    <p class="muted" style="font-size:12px;margin-top:8px;">Version v7</p>
   </div>
 </section>
 
@@ -330,7 +358,7 @@
 
 <footer class="appfoot">
   <p>Buchdaten: Google Books · Open Library · Deutsche Nationalbibliothek — Cover © jeweilige Verlage</p>
-  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v6</p>
+  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v7</p>
 </footer>
 
 <script src="js/update.js"></script>

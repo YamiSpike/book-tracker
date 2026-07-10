@@ -23,9 +23,10 @@ export default async function handler(req, res) {
     const { data } = readBody(req);
     if (data == null || typeof data !== "object")
       return res.status(400).json({ error: "Keine gültigen Daten." });
-    // Größenlimit gegen Speicher-Missbrauch (Redis-Kosten/DoS).
-    if (JSON.stringify(data).length > 2_000_000)
-      return res.status(413).json({ error: "Daten zu groß (max. 2 MB)." });
+    // Größenlimit gegen Speicher-Missbrauch (Redis-Kosten/DoS). 4 MB, damit auch große
+    // Sammlungen (mehrere tausend Titel) syncen — bleibt unter Vercels 4.5-MB-Body-Grenze.
+    if (JSON.stringify(data).length > 4_000_000)
+      return res.status(413).json({ error: "Sammlung zu groß für Cloud-Sync (max. 4 MB). Bitte Duplikate entfernen; ein JSON-Backup funktioniert weiterhin." });
     await redis.set(key, data);
     return res.status(200).json({ ok: true, savedAt: Date.now() });
   }
