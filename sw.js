@@ -1,9 +1,10 @@
-/* Hon 本 · Bücher Tracker — Service Worker v8 */
-const CACHE = 'buecher-v8';
+/* Hon 本 · Bücher Tracker — Service Worker v9 */
+const CACHE = 'buecher-v9';
 const ASSETS = [
   './',
   './index.html',
   './css/styles.css',
+  './js/vendor/lz-string.min.js',
   './js/store.js',
   './js/app.js',
   './js/cloud.js',

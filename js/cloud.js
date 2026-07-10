@@ -54,13 +54,30 @@
         out[k] = localStorage.getItem(k);
       }
     } catch (e) {}
-    // Bücher liegen seit v8 in IndexedDB (nicht mehr in localStorage) → aus dem Store holen
-    if (global.HonStore) out['bk_books'] = global.HonStore.getRaw();
+    // Bücher liegen seit v8 in IndexedDB (nicht mehr in localStorage) → aus dem Store holen.
+    // Seit v9 komprimiert übertragen (bk_books_lz): ~16× kleiner → große Sammlungen bleiben unter dem 4-MB-Limit.
+    var raw = booksGetRaw();
+    if (raw != null) {
+      var lz = compressBooks(raw);
+      if (lz != null) out['bk_books_lz'] = lz;
+      else out['bk_books'] = raw; // Fallback ohne LZString
+    }
     return out;
   }
   function booksGetRaw() { return global.HonStore ? global.HonStore.getRaw() : lsGet('bk_books'); }
   function booksSetRaw(str) { if (global.HonStore) global.HonStore.setRaw(str); else lsSet('bk_books', str); }
   function booksClear() { if (global.HonStore && global.HonStore.clearBooks) global.HonStore.clearBooks(); else lsDel('bk_books'); }
+  function compressBooks(str) {
+    try { if (global.LZString) return 'lz:' + global.LZString.compressToUTF16(str); } catch (e) {}
+    return null;
+  }
+  function decompressBooks(v) {
+    try {
+      if (typeof v !== 'string') return null;
+      if (v.indexOf('lz:') === 0 && global.LZString) return global.LZString.decompressFromUTF16(v.slice(3));
+    } catch (e) {}
+    return null;
+  }
 
   // Wertweises Mergen ohne Datenverlust:
   //  Arrays → Vereinigung (dedupliziert) · Objekte → remote-Basis, lokal gewinnt · sonst lokal behalten
@@ -119,20 +136,26 @@
       skipData = true;
     }
 
+    // Bücher separat behandeln (liegen im Store, evtl. komprimiert als bk_books_lz)
+    if (!skipData) {
+      var remoteBooks = null;
+      if (typeof remote['bk_books_lz'] === 'string') remoteBooks = decompressBooks(remote['bk_books_lz']);
+      else if (typeof remote['bk_books'] === 'string') remoteBooks = remote['bk_books'];
+      if (remoteBooks != null) {
+        var lvb = booksGetRaw();
+        if (lvb == null || lvb === '[]' || lvb === '') { booksSetRaw(remoteBooks); changed = true; }
+        else if (lvb !== remoteBooks) {
+          var mb = mergeBooks(lvb, remoteBooks);
+          if (mb !== lvb) { booksSetRaw(mb); changed = true; }
+        }
+      }
+    }
+
     Object.keys(remote).forEach(function (k) {
-      if (BLOCK.has(k)) return;
+      if (BLOCK.has(k) || k === 'bk_books' || k === 'bk_books_lz') return;
       // Nach einem Wipe die Daten aus der Cloud NICHT zurückholen
       if (skipData && DATA_KEYS.indexOf(k) >= 0) return;
       var rv = remote[k]; if (typeof rv !== 'string') { try { rv = JSON.stringify(rv); } catch (e) { return; } }
-      // Bücher liegen im Store (IndexedDB), nicht in localStorage
-      if (k === 'bk_books') {
-        var lvb = booksGetRaw();
-        if (lvb == null || lvb === '[]' || lvb === '') { booksSetRaw(rv); changed = true; return; }
-        if (lvb === rv) return;
-        var mb = mergeBooks(lvb, rv);
-        if (mb !== lvb) { booksSetRaw(mb); changed = true; }
-        return;
-      }
       var lv = lsGet(k);
       if (lv === null) { if (lsSet(k, rv)) changed = true; return; }
       if (lv === rv) return;
@@ -149,9 +172,8 @@
     DATA_KEYS.forEach(function (k) { if (k === 'bk_books') booksClear(); else lsDel(k); });
     lsSet('bk_wipe', String(now));
     if (!isLoggedIn()) return Promise.resolve(true);
-    var snap = collectData();           // Bücher jetzt leer, aber bk_wipe gesetzt
-    lastHash = fnv(JSON.stringify(snap));
-    return push(snap);                  // redis.set überschreibt den kompletten Datensatz
+    lastHash = lightHash();             // Bücher jetzt leer, aber bk_wipe gesetzt
+    return push(collectData());         // redis.set überschreibt den kompletten Datensatz
   }
 
   // ───── Netz ─────
@@ -194,14 +216,30 @@
     });
   }
 
+  // Leichter Änderungs-Hash über die ROH-Daten (ohne Kompression) — für die Änderungs-Erkennung.
+  // So wird nicht bei jedem 8-Sekunden-Tick die ganze Sammlung komprimiert, sondern nur beim echten Push.
+  function lightHash() {
+    var parts = booksGetRaw() || '';
+    try {
+      var keys = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (!k || BLOCK.has(k)) continue;
+        for (var p = 0; p < PREFIX.length; p++) { if (k.indexOf(PREFIX[p]) === 0) { keys.push(k); break; } }
+      }
+      keys.sort();
+      for (var j = 0; j < keys.length; j++) parts += '\x00' + keys[j] + '=' + localStorage.getItem(keys[j]);
+    } catch (e) {}
+    return fnv(parts);
+  }
+
   // Pull + Merge; bei Änderung Push + UI-Refresh über Callback (kein Reload nötig)
   function syncNow(opts) {
     opts = opts || {};
     return pull().then(function (remote) {
       var changed = mergeApply(remote);
-      var snap = collectData();
-      lastHash = fnv(JSON.stringify(snap));
-      return push(snap).then(function () {
+      lastHash = lightHash();
+      return push(collectData()).then(function () {
         if (changed && typeof global.BKCloudOnChange === 'function') {
           try { global.BKCloudOnChange(); } catch (e) {}
         }
@@ -214,9 +252,9 @@
     if (!isLoggedIn()) return;
     clearTimeout(pushTimer);
     pushTimer = setTimeout(function () {
-      var snap = collectData(); var h = fnv(JSON.stringify(snap));
-      if (h === lastHash) return;
-      push(snap).then(function (ok) { if (ok) lastHash = h; }).catch(function () {});
+      var h = lightHash();
+      if (h === lastHash) return;               // nichts geändert → nicht komprimieren, nicht pushen
+      push(collectData()).then(function (ok) { if (ok) lastHash = h; }).catch(function () {});
     }, PUSH_DEBOUNCE);
   }
 
@@ -428,8 +466,8 @@
     setInterval(function () { scheduledPush(); refreshStatusLine(); }, POLL_MS);
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'hidden' && isLoggedIn()) {
-        var snap = collectData(), hh = fnv(JSON.stringify(snap));
-        if (hh !== lastHash) push(snap).then(function (ok) { if (ok) lastHash = hh; }).catch(function () {});
+        var hh = lightHash();
+        if (hh !== lastHash) push(collectData()).then(function (ok) { if (ok) lastHash = hh; }).catch(function () {});
       }
     });
   }
