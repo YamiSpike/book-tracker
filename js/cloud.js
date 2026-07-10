@@ -90,11 +90,34 @@
     return JSON.stringify(Object.keys(map).map(function (k) { return map[k]; }));
   }
 
+  // Datenschlüssel, die ein „Alles löschen" betreffen
+  var DATA_KEYS = ['bk_books', 'bk_sessions', 'bk_achievements', 'bk_active_session'];
+
   function mergeApply(remote) {
     if (!remote || typeof remote !== 'object') return false;
     var changed = false;
+
+    // Lösch-Marker: Wurde die Sammlung auf EINEM Gerät gelöscht, gilt das überall.
+    // Ohne diesen Check holt der Merge die gelöschten Daten sofort wieder zurück.
+    var rWipe = parseInt(remote['bk_wipe'] || '0', 10) || 0;
+    var lWipe = parseInt(lsGet('bk_wipe') || '0', 10) || 0;
+    var skipData = false;
+    if (rWipe > lWipe) {
+      // Auf einem anderen Gerät gelöscht → hier ebenfalls löschen
+      DATA_KEYS.forEach(function (k) { lsDel(k); });
+      lsSet('bk_wipe', String(rWipe));
+      skipData = true;
+      changed = true;
+    } else if (lWipe > rWipe) {
+      // Hier gelöscht (evtl. offline/abgemeldet) → alte Cloud-Daten NICHT übernehmen.
+      // Der anschließende Push überschreibt die Cloud mit dem leeren Stand.
+      skipData = true;
+    }
+
     Object.keys(remote).forEach(function (k) {
       if (BLOCK.has(k)) return;
+      // Nach einem Wipe die Daten aus der Cloud NICHT zurückholen
+      if (skipData && DATA_KEYS.indexOf(k) >= 0) return;
       var rv = remote[k]; if (typeof rv !== 'string') { try { rv = JSON.stringify(rv); } catch (e) { return; } }
       var lv = lsGet(k);
       if (lv === null) { if (lsSet(k, rv)) changed = true; return; }
@@ -103,6 +126,18 @@
       if (m !== lv && lsSet(k, m)) changed = true;
     });
     return changed;
+  }
+
+  // Sammlung überall löschen: Marker setzen und den (leeren) Stand hochschieben — OHNE vorher zu pullen,
+  // sonst würden die Cloud-Daten sofort wieder hereingemerged.
+  function wipe() {
+    var now = Date.now();
+    DATA_KEYS.forEach(function (k) { lsDel(k); });
+    lsSet('bk_wipe', String(now));
+    if (!isLoggedIn()) return Promise.resolve(true);
+    var snap = collectData();           // enthält jetzt kein bk_books mehr, aber bk_wipe
+    lastHash = fnv(JSON.stringify(snap));
+    return push(snap);                  // redis.set überschreibt den kompletten Datensatz
   }
 
   // ───── Netz ─────
@@ -389,6 +424,7 @@
   global.BKCloud = {
     openModal: openModal, closeModal: closeModal,
     isLoggedIn: isLoggedIn, getEmail: getEmail, logout: logout,
+    wipe: wipe,
     syncNow: syncNow, statusText: statusText, refreshStatusLine: refreshStatusLine,
     start: start
   };

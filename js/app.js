@@ -711,29 +711,71 @@
   }
 
   // ───── v7: Duplikat-Erkennung & -Verwaltung ─────
-  // Dedup-Schlüssel: ISBN (falls vorhanden) ist eindeutig; sonst Titel+Autor normalisiert.
-  function dupKey(b) {
-    var isbn = (b.isbn || '').replace(/[^0-9Xx]/g, '');
-    if (isbn.length >= 10) return 'isbn:' + isbn;
-    return 'ta:' + bookKey(b);
+  // Verschiedene Apps schreiben denselben Titel unterschiedlich:
+  //   „Naruto, Vol. 5" / „Naruto Band 5" / „Naruto 5"  → alle ergeben „naruto 5"
+  //   „Kishimoto, Masashi" / „Masashi Kishimoto"       → beide ergeben „kishimoto masashi"
+  // Die Bandnummer bleibt erhalten, damit Band 5 und Band 6 NICHT verschmelzen.
+  function normTitleKey(t) {
+    var s = String(t || '').toLowerCase();
+    s = s.replace(/[·:;,\-–—_\/\\|()\[\]{}"'`„“”«»&]/g, ' ');
+    s = s.replace(/\b(bd|band|baende|bände|vol|volume|nr|no|teil|tome|ausgabe|issue|chapter|kapitel)\b\.?/g, ' ');
+    s = s.replace(/#/g, ' ');
+    s = s.replace(/[^a-z0-9äöüß]+/g, ' ');
+    return s.replace(/\s+/g, ' ').trim();
   }
-  function findDuplicateGroups() {
+  function normAuthorKey(a) {
+    var s = String(a || '').toLowerCase().replace(/[^a-zäöüß\s]/g, ' ');
+    return s.split(/\s+/).filter(Boolean).sort().join(' ');
+  }
+  function normIsbnKey(i) {
+    var s = String(i || '').replace(/[^0-9Xx]/g, '').toUpperCase();
+    return (s.length === 10 || s.length === 13) ? s : '';
+  }
+
+  // Union-Find: Einträge, die sich EINEN Schlüssel teilen (ISBN oder Titel[+Autor]),
+  // landen in derselben Gruppe — auch wenn nur eine Quelle eine ISBN geliefert hat.
+  function findDuplicateGroups(mode) {
+    var books = lib();
+    var n = books.length;
+    var parent = new Array(n);
+    for (var i = 0; i < n; i++) parent[i] = i;
+    function find(x) { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+    function union(a, b) { a = find(a); b = find(b); if (a !== b) parent[b] = a; }
+
+    var byKey = Object.create(null);
+    function addKey(k, idx) {
+      if (!k) return;
+      if (byKey[k] !== undefined) union(byKey[k], idx);
+      else byKey[k] = idx;
+    }
+    for (var j = 0; j < n; j++) {
+      var b = books[j];
+      var isbn = normIsbnKey(b.isbn);
+      var t = normTitleKey(b.title);
+      var a = normAuthorKey((b.authors || [])[0]);
+      if (isbn) addKey('i:' + isbn, j);
+      if (t) {
+        // „locker": Titel allein genügt. „streng": Titel + Autor (autorlose Einträge nur per Titel).
+        if (mode === 'loose' || !a) addKey('t:' + t, j);
+        else addKey('ta:' + t + '|' + a, j);
+      }
+    }
     var groups = Object.create(null);
-    lib().forEach(function (b) {
-      var k = dupKey(b);
-      (groups[k] = groups[k] || []).push(b);
-    });
+    for (var k = 0; k < n; k++) {
+      var r = find(k);
+      (groups[r] = groups[r] || []).push(books[k]);
+    }
     var out = [];
-    Object.keys(groups).forEach(function (k) {
-      if (groups[k].length > 1) {
-        // „Besten" Eintrag zum Behalten zuerst: mit Cover + Bewertung + frühestes addedAt
-        groups[k].sort(function (a, b) {
-          var sa = (a.cover ? 2 : 0) + (a.rating ? 1 : 0);
-          var sb = (b.cover ? 2 : 0) + (b.rating ? 1 : 0);
-          if (sb !== sa) return sb - sa;
-          return (a.addedAt || 0) - (b.addedAt || 0);
+    Object.keys(groups).forEach(function (g) {
+      if (groups[g].length > 1) {
+        // „Besten" Eintrag zum Behalten zuerst: mit Cover + Bewertung + Fortschritt, dann ältester
+        groups[g].sort(function (x, y) {
+          var sx = (x.cover ? 4 : 0) + (x.rating ? 2 : 0) + (x.progress ? 1 : 0);
+          var sy = (y.cover ? 4 : 0) + (y.rating ? 2 : 0) + (y.progress ? 1 : 0);
+          if (sy !== sx) return sy - sx;
+          return (x.addedAt || 0) - (y.addedAt || 0);
         });
-        out.push(groups[k]);
+        out.push(groups[g]);
       }
     });
     return out;
@@ -760,43 +802,63 @@
   }
 
   function openDupModal() {
-    var groups = findDuplicateGroups();
     var m = document.createElement('div');
     m.className = 'admin-modal';
-    var total = groups.reduce(function (s, g) { return s + (g.length - 1); }, 0);
-    if (!groups.length) {
-      m.innerHTML = '<div class="admin-card"><div class="admin-head">🧹 Duplikate</div>'
-        + '<p class="admin-sub">Keine Duplikate gefunden — deine Sammlung ist sauber! ✨</p>'
-        + '<div class="admin-btns"><button class="btn-ghost" id="dupClose">Schließen</button></div></div>';
-      document.body.appendChild(m);
-      m.querySelector('#dupClose').addEventListener('click', function () { m.remove(); });
-      m.addEventListener('click', function (e) { if (e.target === m) m.remove(); });
-      return;
-    }
-    // Vorschau der ersten Gruppen (nicht alle rendern — könnten tausende sein)
-    var preview = groups.slice(0, 40).map(function (g) {
-      var keep = g[0], dups = g.slice(1);
-      return '<div class="dup-group"><div class="dup-keep">✓ behalten: <b>' + esc(keep.title) + '</b>'
-        + (keep.authors && keep.authors[0] ? ' <span class="muted">· ' + esc(keep.authors[0]) + '</span>' : '') + '</div>'
-        + '<div class="dup-remove">✕ ' + dups.length + ' Duplikat' + (dups.length > 1 ? 'e' : '') + ' entfernen</div></div>';
-    }).join('');
-    m.innerHTML = '<div class="admin-card"><div class="admin-head">🧹 Duplikate gefunden</div>'
-      + '<p class="admin-sub"><b>' + groups.length.toLocaleString('de-DE') + '</b> Titel sind mehrfach vorhanden — insgesamt <b>' + total.toLocaleString('de-DE') + '</b> Duplikate. Beim Bereinigen bleibt je Titel <b>ein</b> Exemplar (mit Cover/Bewertung bevorzugt).</p>'
-      + '<div class="dup-list">' + preview + (groups.length > 40 ? '<div class="muted" style="padding:8px 0">… und ' + (groups.length - 40).toLocaleString('de-DE') + ' weitere Gruppen</div>' : '') + '</div>'
-      + '<div class="admin-btns"><button class="btn-primary" id="dupGo">' + total.toLocaleString('de-DE') + ' Duplikate entfernen</button>'
-      + '<button class="btn-ghost" id="dupClose">Abbrechen</button></div></div>';
     document.body.appendChild(m);
     m.addEventListener('click', function (e) { if (e.target === m) m.remove(); });
-    m.querySelector('#dupClose').addEventListener('click', function () { m.remove(); });
-    m.querySelector('#dupGo').addEventListener('click', function () {
-      var ids = [];
-      groups.forEach(function (g) { g.slice(1).forEach(function (b) { ids.push(b.id); }); });
-      var n = deleteBooksByIds(ids);
-      m.remove();
-      recoBuiltFor = '';
-      refreshAll();
-      toast('🧹 ' + n.toLocaleString('de-DE') + ' Duplikate entfernt ✓');
-    });
+
+    // Beide Modi vorab berechnen, damit du siehst welcher greift
+    var strictGroups = findDuplicateGroups('strict');
+    var looseGroups = findDuplicateGroups('loose');
+    function totalOf(gs) { return gs.reduce(function (s, g) { return s + (g.length - 1); }, 0); }
+    var mode = totalOf(strictGroups) > 0 ? 'strict' : 'loose';
+
+    function render() {
+      var groups = mode === 'strict' ? strictGroups : looseGroups;
+      var total = totalOf(groups);
+      var modeRow = '<div class="dup-modes">'
+        + '<button class="chip' + (mode === 'strict' ? ' active' : '') + '" data-mode="strict">Streng: Titel + Autor·in (' + totalOf(strictGroups).toLocaleString('de-DE') + ')</button>'
+        + '<button class="chip' + (mode === 'loose' ? ' active' : '') + '" data-mode="loose">Locker: nur Titel (' + totalOf(looseGroups).toLocaleString('de-DE') + ')</button>'
+        + '</div>';
+
+      if (!groups.length) {
+        m.innerHTML = '<div class="admin-card"><div class="admin-head">🧹 Duplikate</div>'
+          + modeRow
+          + '<p class="admin-sub">In diesem Modus keine Duplikate gefunden. Probier „Locker" — das erkennt auch Titel, die zwei Apps unterschiedlich schreiben.</p>'
+          + '<div class="admin-btns"><button class="btn-ghost" id="dupClose">Schließen</button></div></div>';
+      } else {
+        var preview = groups.slice(0, 40).map(function (g) {
+          var keep = g[0], dups = g.slice(1);
+          return '<div class="dup-group"><div class="dup-keep">✓ behalten: <b>' + esc(keep.title) + '</b>'
+            + (keep.authors && keep.authors[0] ? ' <span class="muted">· ' + esc(keep.authors[0]) + '</span>' : '') + '</div>'
+            + '<div class="dup-remove">✕ entfernt: ' + dups.map(function (d) { return esc(d.title); }).slice(0, 3).join(' · ')
+            + (dups.length > 3 ? ' … (' + dups.length + ')' : '') + '</div></div>';
+        }).join('');
+        m.innerHTML = '<div class="admin-card"><div class="admin-head">🧹 Duplikate gefunden</div>'
+          + modeRow
+          + '<p class="admin-sub"><b>' + groups.length.toLocaleString('de-DE') + '</b> Titel mehrfach vorhanden — insgesamt <b>' + total.toLocaleString('de-DE') + '</b> Duplikate. Je Titel bleibt <b>ein</b> Exemplar (mit Cover/Bewertung/Fortschritt bevorzugt).</p>'
+          + '<div class="dup-list">' + preview + (groups.length > 40 ? '<div class="muted" style="padding:8px 0">… und ' + (groups.length - 40).toLocaleString('de-DE') + ' weitere Gruppen</div>' : '') + '</div>'
+          + '<div class="admin-btns"><button class="btn-primary" id="dupGo">' + total.toLocaleString('de-DE') + ' Duplikate entfernen</button>'
+          + '<button class="btn-ghost" id="dupClose">Abbrechen</button></div></div>';
+      }
+
+      m.querySelector('#dupClose').addEventListener('click', function () { m.remove(); });
+      m.querySelectorAll('.dup-modes .chip').forEach(function (btn) {
+        btn.addEventListener('click', function () { mode = btn.dataset.mode; render(); });
+      });
+      var go = m.querySelector('#dupGo');
+      if (go) go.addEventListener('click', function () {
+        var gs = mode === 'strict' ? strictGroups : looseGroups;
+        var ids = [];
+        gs.forEach(function (g) { g.slice(1).forEach(function (b) { ids.push(b.id); }); });
+        var n = deleteBooksByIds(ids);
+        m.remove();
+        recoBuiltFor = '';
+        refreshAll();
+        toast('🧹 ' + n.toLocaleString('de-DE') + ' Duplikate entfernt ✓');
+      });
+    }
+    render();
   }
 
   // ───── v7: Fehlende Cover automatisch nachladen ─────
@@ -915,14 +977,20 @@
         try { localStorage.removeItem(k); } catch (e) {}
       });
       invalidateBooks();
-      // Bei aktivem Cloud-Sync die leere Sammlung hochschieben, damit sie überall verschwindet
-      if (cloudActive && window.BKCloud && window.BKCloud.syncNow) {
-        try { window.BKCloud.syncNow({}); } catch (e) {}
-      }
       m.remove();
       recoBuiltFor = '';
       refreshAll();
-      toast('🗑️ Sammlung komplett gelöscht.');
+      // BKCloud.wipe() setzt den Lösch-Marker und überschreibt die Cloud OHNE vorher zu pullen.
+      // (syncNow würde die Daten zuerst wieder hereinmergen — genau das war der Fehler.)
+      if (window.BKCloud && window.BKCloud.wipe) {
+        window.BKCloud.wipe().then(function () {
+          toast(cloudActive ? '🗑️ Sammlung überall gelöscht (auch in der Cloud).' : '🗑️ Sammlung komplett gelöscht.');
+        }).catch(function () {
+          toast('🗑️ Lokal gelöscht — Cloud konnte nicht erreicht werden, wird beim nächsten Sync geleert.');
+        });
+      } else {
+        toast('🗑️ Sammlung komplett gelöscht.');
+      }
     });
   }
 
