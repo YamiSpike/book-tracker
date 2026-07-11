@@ -1,5 +1,5 @@
-/* Hon 本 · Bücher Tracker — Service Worker v11 */
-const CACHE = 'buecher-v11';
+/* Hon 本 · Bücher Tracker — Service Worker v11.1 */
+const CACHE = 'buecher-v11-1';
 const ASSETS = [
   './',
   './index.html',
@@ -12,6 +12,7 @@ const ASSETS = [
   './js/mascot.js',
   './manifest.json',
   './icon.svg',
+  './img/fuku.png',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',

@@ -7,39 +7,9 @@
   var hidden = false;
   try { hidden = localStorage.getItem(STORAGE) === '1'; } catch (e) { /**/ }
 
-  // Chibi-Eule mit Buch (Bernstein/Creme-Palette der App)
-  var SVG = '' +
-    '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
-      '<ellipse cx="50" cy="93" rx="22" ry="4.5" fill="rgba(0,0,0,.28)"/>' +
-      // Ohrbüschel
-      '<path d="M28 22 L22 8 L38 16 Z" fill="#8a5a2b" stroke="#4a3018" stroke-width="1.5" stroke-linejoin="round"/>' +
-      '<path d="M72 22 L78 8 L62 16 Z" fill="#8a5a2b" stroke="#4a3018" stroke-width="1.5" stroke-linejoin="round"/>' +
-      // Körper
-      '<ellipse cx="50" cy="52" rx="32" ry="34" fill="#a9713a" stroke="#4a3018" stroke-width="1.5"/>' +
-      // Bauch
-      '<ellipse cx="50" cy="60" rx="22" ry="23" fill="#f3e4c2"/>' +
-      '<path d="M38 52 q4 5 8 0 M54 52 q4 5 8 0 M42 62 q4 5 8 0 M50 62 q4 5 8 0" fill="none" stroke="#d9c49a" stroke-width="1.4" stroke-linecap="round"/>' +
-      // Flügel
-      '<path d="M18 46 Q14 62 26 72 Q30 60 28 46 Z" fill="#8a5a2b" stroke="#4a3018" stroke-width="1.2"/>' +
-      '<path d="M82 46 Q86 62 74 72 Q70 60 72 46 Z" fill="#8a5a2b" stroke="#4a3018" stroke-width="1.2"/>' +
-      // Brille (Lese-Eule!)
-      '<circle cx="38" cy="40" r="11" fill="rgba(253,246,227,.35)" stroke="#f5c96b" stroke-width="2"/>' +
-      '<circle cx="62" cy="40" r="11" fill="rgba(253,246,227,.35)" stroke="#f5c96b" stroke-width="2"/>' +
-      '<line x1="49" y1="40" x2="51" y2="40" stroke="#f5c96b" stroke-width="2"/>' +
-      // Augen (blinzeln via .eye)
-      '<g class="eye"><circle cx="38" cy="40" r="6" fill="#241a12"/><circle cx="36" cy="37.5" r="2" fill="#fff"/></g>' +
-      '<g class="eye"><circle cx="62" cy="40" r="6" fill="#241a12"/><circle cx="60" cy="37.5" r="2" fill="#fff"/></g>' +
-      // Schnabel
-      '<path d="M46 49 L54 49 L50 56 Z" fill="#e8a33d" stroke="#4a3018" stroke-width="1.2" stroke-linejoin="round"/>' +
-      // Buch in den Krallen
-      '<g>' +
-        '<path d="M30 80 Q40 74 50 78 L50 90 Q40 86 30 92 Z" fill="#fdf6e3" stroke="#4a3018" stroke-width="1.2"/>' +
-        '<path d="M70 80 Q60 74 50 78 L50 90 Q60 86 70 92 Z" fill="#f3e4c2" stroke="#4a3018" stroke-width="1.2"/>' +
-        '<path d="M35 81 L45 79 M35 85 L45 83 M55 79 L65 81 M55 83 L65 85" stroke="#b39868" stroke-width="1.1" stroke-linecap="round"/>' +
-      '</g>' +
-      // Funkel-Stern
-      '<path class="spark" d="M85 24 l1.6 4 4 1.6 -4 1.6 -1.6 4 -1.6 -4 -4 -1.6 4 -1.6 Z" fill="#f5c96b"/>' +
-    '</svg>';
+  // Eule „Fuku" — hochwertiges Canva-AI-Sticker-Artwork (identisch zum Maskottchen-Stil der Nihongo-App).
+  // Freigestelltes PNG (512×512, transparenter Hintergrund) statt selbstgezeichnetem SVG.
+  var SVG = '<img class="mascot-img" src="img/fuku.png" alt="" width="92" height="92" draggable="false" />';
 
   function clampPlace() {
     if (!el) return;
