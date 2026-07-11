@@ -466,8 +466,9 @@
     }
     var kind = b.kind === 'manga' ? '<span class="kind-chip" title="Manga">🎌</span>'
       : b.kind === 'magazin' ? '<span class="kind-chip" title="Zeitschrift">📰</span>' : '';
-    return '<article class="card" data-id="' + esc(b.id) + '" data-src="' + esc(opts.src || 'lib') + '">'
-      + chip + mark + kind + coverHtml(b)
+    var sel = opts.selectable ? '<span class="sel-check" aria-hidden="true">✓</span>' : '';
+    return '<article class="card' + (opts.selectable ? ' selectable' : '') + '" data-id="' + esc(b.id) + '" data-src="' + esc(opts.src || 'lib') + '">'
+      + sel + chip + mark + kind + coverHtml(b)
       + reason
       + '<div class="meta"><div class="title">' + esc(b.title) + '</div>'
       + '<div class="author">' + esc(b.authors.join(', ') || '–') + '</div>' + stars + prog + '</div></article>';
@@ -671,15 +672,33 @@
       if (sort === 'title') return a.title.localeCompare(b.title, 'de');
       if (sort === 'author') return (a.authors[0] || '').localeCompare(b.authors[0] || '', 'de');
       if (sort === 'rating') return (b.rating || 0) - (a.rating || 0);
+      if (sort === 'publisher') return (a.publisher || 'zzz').localeCompare(b.publisher || 'zzz', 'de');
+      if (sort === 'year') return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0);
+      if (sort === 'pages') return (b.pages || 0) - (a.pages || 0);
       return (b.addedAt || 0) - (a.addedAt || 0);
     });
+
+    // v10: Serien-Ansicht — Bände einer Reihe zu einer Kachel zusammenfassen
+    var items = out, isSeries = false;
+    if (libViewMode === 'series') {
+      items = groupIntoSeries(out);
+      isSeries = true;
+    }
+
     // Treffer-Zähler (wichtig bei großen Sammlungen)
     var cnt = $('libCount');
-    if (cnt) cnt.textContent = out.length === books.length
-      ? books.length.toLocaleString('de-DE') + ' Titel'
-      : out.length.toLocaleString('de-DE') + ' von ' + books.length.toLocaleString('de-DE') + ' Titeln';
+    if (cnt) {
+      var base = out.length === books.length
+        ? books.length.toLocaleString('de-DE') + ' Titel'
+        : out.length.toLocaleString('de-DE') + ' von ' + books.length.toLocaleString('de-DE') + ' Titeln';
+      if (isSeries) {
+        var realSeries = items.filter(function (x) { return x && x.series; }).length;
+        cnt.textContent = realSeries.toLocaleString('de-DE') + ' Reihen · ' + base;
+      } else cnt.textContent = base;
+    }
     // Virtualisiert rendern: nur die erste Charge, Rest per Infinite Scroll (hält das DOM klein → flüssig bei 10.000+)
-    libFiltered = out;
+    libFiltered = items;
+    libIsSeries = isSeries;
     libShown = 0;
     var grid = $('libGrid');
     grid.innerHTML = '<div id="libSentinel" style="grid-column:1/-1;height:1px"></div>';
@@ -688,16 +707,72 @@
     $('emptyLib').hidden = books.length > 0;
   }
 
+  // v10: Reihen bilden. Bücher mit erkannter Serie → Gruppe; alles andere bleibt als Einzeltitel.
+  function groupIntoSeries(list) {
+    var groups = Object.create(null), order = [];
+    var singles = [];
+    list.forEach(function (b) {
+      var s = seriesOf(b);
+      if (s && b.kind === 'manga') {
+        var key = normTitleKey(s.name);
+        if (!groups[key]) { groups[key] = { series: true, name: s.name, items: [], cover: '' }; order.push(key); }
+        groups[key].items.push(b);
+        if (!groups[key].cover && b.cover) groups[key].cover = b.cover;
+      } else {
+        singles.push(b);
+      }
+    });
+    var out = [];
+    order.forEach(function (k) {
+      var g = groups[k];
+      if (g.items.length < 2) { out.push(g.items[0]); return; } // Einzelband → normale Buchkarte
+      // Bände + Lücken berechnen
+      var nums = g.items.map(function (b) { var s = seriesOf(b); return s ? s.num : 0; }).filter(function (n) { return n > 0; });
+      nums.sort(function (a, b) { return a - b; });
+      var max = nums.length ? nums[nums.length - 1] : g.items.length;
+      var have = Object.create(null); nums.forEach(function (n) { have[n] = 1; });
+      var missing = [];
+      for (var n = 1; n <= max; n++) if (!have[n]) missing.push(n);
+      g.count = g.items.length;
+      g.readCount = g.items.filter(function (b) { return b.status === 'read'; }).length;
+      g.missing = missing;
+      g.maxBand = max;
+      out.push(g);
+    });
+    // Einzeltitel anhängen
+    return out.concat(singles);
+  }
+
+  function seriesCardHtml(g) {
+    var cover = g.cover
+      ? '<img class="cover" loading="lazy" src="' + esc(g.cover) + '" alt="" />'
+      : '<div class="cover-fallback"><div class="big">📚</div><div class="t">' + esc(g.name.slice(0, 40)) + '</div></div>';
+    var missingBadge = g.missing && g.missing.length
+      ? '<span class="series-badge missing">' + g.missing.length + ' fehlen</span>'
+      : '<span class="series-badge full">komplett</span>';
+    return '<article class="card series-card" data-series="' + esc(normTitleKey(g.name)) + '">'
+      + '<span class="stack-chip">📚 ' + g.count + '</span>' + missingBadge
+      + cover
+      + '<div class="meta"><div class="title">' + esc(g.name) + '</div>'
+      + '<div class="author">' + g.readCount + ' / ' + g.count + ' gelesen · bis Band ' + g.maxBand + '</div></div></article>';
+  }
+
   // ───── Virtualisiertes Sammlungs-Rendering ─────
   var libFiltered = [], libShown = 0, LIB_BATCH = 48, libObserver = null;
+  var libViewMode = 'single', libIsSeries = false; // 'single' | 'series'
   function renderLibChunk() {
     var sentinel = $('libSentinel');
     if (!sentinel) return;
     var end = Math.min(libShown + LIB_BATCH, libFiltered.length);
     var html = '';
-    for (var i = libShown; i < end; i++) html += cardHtml(libFiltered[i], { showStatus: true });
+    for (var i = libShown; i < end; i++) {
+      var it = libFiltered[i];
+      html += (it && it.series) ? seriesCardHtml(it) : cardHtml(it, { showStatus: true, selectable: selectMode });
+    }
     sentinel.insertAdjacentHTML('beforebegin', html);
     libShown = end;
+    // Auswahl-Markierungen nach dem Nachrendern wiederherstellen
+    if (selectMode) markSelectedCards();
     if (libShown >= libFiltered.length) sentinel.style.display = 'none';
     else sentinel.style.display = '';
   }
@@ -1139,11 +1214,19 @@
           return '<div class="bar-row"><span class="lbl">' + esc(k) + '</span><span class="bar"><i style="width:' + Math.round(counts[k] / max * 100) + '%"></i></span><span class="val">' + counts[k] + '</span></div>';
         }).join('') + '</div>';
     }
-    var gen = {}, aut = {}, yrs = {};
+    var gen = {}, aut = {}, yrs = {}, pub = {}, mon = {};
+    var MONTHS_DE = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
     books.forEach(function (b) {
       (b.categories || []).forEach(function (c) { var g = c.split('/')[0].trim(); if (g) gen[g] = (gen[g] || 0) + 1; });
       (b.authors || []).forEach(function (a) { aut[a] = (aut[a] || 0) + 1; });
       var y = new Date(b.addedAt || Date.now()).getFullYear(); yrs[y] = (yrs[y] || 0) + 1;
+      if (b.publisher) pub[b.publisher] = (pub[b.publisher] || 0) + 1;
+      // gelesen pro Monat (letzte 12 Monate)
+      readDatesOf(b).forEach(function (ts) {
+        var dt = new Date(ts);
+        var diff = (new Date().getFullYear() - dt.getFullYear()) * 12 + (new Date().getMonth() - dt.getMonth());
+        if (diff >= 0 && diff < 12) { var lbl = MONTHS_DE[dt.getMonth()] + ' ' + String(dt.getFullYear()).slice(2); mon[lbl] = (mon[lbl] || 0) + 1; }
+      });
     });
     // Lese-Heatmap: letzte 26 Wochen (hinzugefügt = 1 Punkt, beendet = 2 Punkte)
     function heatmapHtml() {
@@ -1214,7 +1297,7 @@
 
     $('statsBars').innerHTML = books.length
       ? '<div style="margin-top:14px"><button class="btn-primary" id="yearReviewBtn">📚 Dein Lesejahr ' + new Date().getFullYear() + '</button></div>'
-        + heatmapHtml() + achHtml() + seriesHtml() + barBlock('📚 Top-Genres', gen) + barBlock('✍️ Top-Autor·innen', aut) + barBlock('🗓️ Hinzugefügt pro Jahr', yrs)
+        + heatmapHtml() + achHtml() + seriesHtml() + barBlock('📖 Gelesen pro Monat', mon) + barBlock('📚 Top-Genres', gen) + barBlock('✍️ Top-Autor·innen', aut) + barBlock('🏢 Top-Verlage', pub) + barBlock('🗓️ Hinzugefügt pro Jahr', yrs)
       : '<div class="empty"><div class="big">📊</div><p>Noch keine Daten — füge zuerst Bücher hinzu.</p></div>';
     var yb = document.getElementById('yearReviewBtn');
     if (yb) yb.addEventListener('click', openYearReview);
@@ -1618,7 +1701,11 @@
   document.addEventListener('click', function (e) {
     var card = e.target.closest('.card');
     if (!card) return;
+    // Serien-Kachel → Bände-Übersicht
+    if (card.classList.contains('series-card')) { openSeriesModal(card.dataset.series); return; }
     var id = card.dataset.id, src = card.dataset.src;
+    // Auswahl-Modus (nur in der Sammlung): Karte markieren statt öffnen
+    if (selectMode && src === 'lib') { toggleSelect(id, card); return; }
     var b = null;
     if (src === 'search') b = lastSearch.find(function (x) { return x.id === id; });
     else if (src === 'reco') { var r = lastReco.find(function (x) { return x.book.id === id; }); b = r && r.book; }
@@ -1626,6 +1713,122 @@
     else b = findInLib(id);
     if (b) openDetail(findInLib(id) || b);
   });
+
+  // ───── v10: Serien-Detail (Bände-Übersicht + fehlende Bände) ─────
+  function openSeriesModal(key) {
+    var members = lib().filter(function (b) { var s = seriesOf(b); return s && b.kind === 'manga' && normTitleKey(s.name) === key; });
+    if (!members.length) return;
+    members.sort(function (a, b) { return (seriesOf(a).num || 0) - (seriesOf(b).num || 0); });
+    var name = seriesOf(members[0]).name;
+    var nums = members.map(function (b) { return seriesOf(b).num || 0; }).filter(function (n) { return n > 0; });
+    var max = nums.length ? Math.max.apply(null, nums) : members.length;
+    var have = Object.create(null); nums.forEach(function (n) { have[n] = 1; });
+    var missing = []; for (var n = 1; n <= max; n++) if (!have[n]) missing.push(n);
+    var readCount = members.filter(function (b) { return b.status === 'read'; }).length;
+
+    var m = document.createElement('div');
+    m.className = 'admin-modal';
+    var bandList = members.map(function (b) {
+      var s = seriesOf(b);
+      var st = b.status === 'read' ? '✓' : b.status === 'reading' ? '📖' : '🔖';
+      return '<button class="band-item" data-open="' + esc(b.id) + '"><span class="band-no">' + (s.num || '?') + '</span>'
+        + '<span class="band-status">' + st + '</span></button>';
+    }).join('');
+    m.innerHTML = '<div class="admin-card"><div class="admin-head">📚 ' + esc(name) + '</div>'
+      + '<p class="admin-sub"><b>' + members.length + '</b> Bände · <b>' + readCount + '</b> gelesen · bis Band ' + max + '</p>'
+      + (missing.length
+        ? '<div class="series-missing-box">📕 Dir fehlen: <b>Band ' + missing.join(', ') + '</b>'
+          + '<div class="series-missing-actions"><a class="shop-link amazon" href="https://www.amazon.de/s?k=' + encodeURIComponent(name + ' Band ' + missing[0]) + '&i=stripbooks" target="_blank" rel="noopener noreferrer">🛒 Amazon</a>'
+          + '<a class="shop-link thalia" href="https://www.thalia.de/suche?sq=' + encodeURIComponent(name + ' Band ' + missing[0]) + '" target="_blank" rel="noopener noreferrer">📖 Thalia</a></div></div>'
+        : '<div class="series-full-box">✓ Reihe vollständig (Band 1–' + max + ')</div>')
+      + '<div class="band-grid">' + bandList + '</div>'
+      + '<div class="admin-btns"><button class="btn-ghost" id="seriesClose">Schließen</button></div></div>';
+    document.body.appendChild(m);
+    m.addEventListener('click', function (e) { if (e.target === m) m.remove(); });
+    m.querySelector('#seriesClose').addEventListener('click', function () { m.remove(); });
+    m.querySelectorAll('.band-item').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var b = findInLib(btn.dataset.open);
+        if (b) { m.remove(); openDetail(b); }
+      });
+    });
+  }
+
+  // ───── v10: Mehrfachauswahl & Bulk-Aktionen ─────
+  var selectMode = false, selectedIds = Object.create(null), selectedCount = 0;
+  function markSelectedCards() {
+    document.querySelectorAll('#libGrid .card.selectable').forEach(function (c) {
+      c.classList.toggle('selected', !!selectedIds[c.dataset.id]);
+    });
+  }
+  function toggleSelect(id, card) {
+    if (selectedIds[id]) { delete selectedIds[id]; selectedCount--; card.classList.remove('selected'); }
+    else { selectedIds[id] = 1; selectedCount++; card.classList.add('selected'); }
+    updateBulkBar();
+  }
+  function enterSelectMode() {
+    selectMode = true; selectedIds = Object.create(null); selectedCount = 0;
+    libViewMode = 'single';
+    var vt = $('viewToggle'); if (vt) vt.style.display = 'none';
+    $('selectBtn').textContent = '✕ Auswahl beenden';
+    renderLib(); updateBulkBar();
+  }
+  function exitSelectMode() {
+    selectMode = false; selectedIds = Object.create(null); selectedCount = 0;
+    var vt = $('viewToggle'); if (vt) vt.style.display = '';
+    $('selectBtn').textContent = '☑️ Auswählen';
+    var bar = $('bulkBar'); if (bar) bar.remove();
+    renderLib();
+  }
+  function updateBulkBar() {
+    var bar = $('bulkBar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'bulkBar'; bar.className = 'bulk-bar';
+      document.body.appendChild(bar);
+    }
+    bar.innerHTML = '<span class="bulk-count">' + selectedCount + ' ausgewählt</span>'
+      + '<button class="bulk-act" data-bulk="read">✓ Gelesen</button>'
+      + '<button class="bulk-act" data-bulk="want">🔖 Will lesen</button>'
+      + '<button class="bulk-act" data-bulk="tag">🏷️ Tag</button>'
+      + '<button class="bulk-act danger" data-bulk="delete">🗑️</button>';
+    bar.querySelectorAll('.bulk-act').forEach(function (btn) {
+      btn.addEventListener('click', function () { doBulk(btn.dataset.bulk); });
+    });
+  }
+  function selectedIdList() { return Object.keys(selectedIds); }
+  function doBulk(action) {
+    var ids = selectedIdList();
+    if (!ids.length) { toast('Nichts ausgewählt.'); return; }
+    if (action === 'read' || action === 'want') {
+      var all = loadBooks(), now = Date.now(), idset = Object.create(null);
+      ids.forEach(function (i) { idset[i] = 1; });
+      for (var k = 0; k < all.length; k++) if (idset[all[k].id]) all[k] = Object.assign({}, all[k], { status: action, updatedAt: now });
+      saveBooks(all);
+      toast('✓ ' + ids.length + ' Titel auf „' + STATUS_LBL[action] + '" gesetzt');
+      exitSelectMode();
+    } else if (action === 'tag') {
+      var tag = window.prompt('Tag/Regal für ' + ids.length + ' Titel:');
+      if (tag == null) return;
+      tag = tag.trim(); if (!tag) return;
+      var all2 = loadBooks(), now2 = Date.now(), idset2 = Object.create(null);
+      ids.forEach(function (i) { idset2[i] = 1; });
+      for (var k2 = 0; k2 < all2.length; k2++) if (idset2[all2[k2].id]) {
+        var tags = (all2[k2].tags || []).slice();
+        if (tags.indexOf(tag) < 0) tags.push(tag);
+        all2[k2] = Object.assign({}, all2[k2], { tags: tags, updatedAt: now2 });
+      }
+      saveBooks(all2);
+      toast('🏷️ „' + tag + '" zu ' + ids.length + ' Titeln hinzugefügt');
+      exitSelectMode();
+    } else if (action === 'delete') {
+      if (!window.confirm(ids.length + ' Titel wirklich entfernen?')) return;
+      var n = deleteBooksByIds(ids);
+      toast('🗑️ ' + n + ' Titel entfernt');
+      recoBuiltFor = '';
+      exitSelectMode();
+    }
+  }
 
   // ───── Alles neu zeichnen ─────
   function refreshAll() {
@@ -2428,6 +2631,16 @@
     });
     $('exportBtn').addEventListener('click', exportJson);
     $('dupBtn').addEventListener('click', openDupModal);
+
+    // v10: Ansicht Einzeln ↔ Serien
+    $('viewToggle').addEventListener('click', function (e) {
+      var b = e.target.closest('.vt-btn'); if (!b) return;
+      libViewMode = b.dataset.view;
+      document.querySelectorAll('#viewToggle .vt-btn').forEach(function (x) { x.classList.toggle('active', x === b); });
+      renderLib();
+    });
+    // v10: Mehrfachauswahl
+    $('selectBtn').addEventListener('click', function () { if (selectMode) exitSelectMode(); else enterSelectMode(); });
 
     // Empfehlungen
     $('recoRefresh').addEventListener('click', function () { renderReco(true); });

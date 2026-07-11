@@ -1,5 +1,5 @@
-/* Hon 本 · Bücher Tracker — Service Worker v10 */
-const CACHE = 'buecher-v10';
+/* Hon 本 · Bücher Tracker — Service Worker v11 */
+const CACHE = 'buecher-v11';
 const ASSETS = [
   './',
   './index.html',

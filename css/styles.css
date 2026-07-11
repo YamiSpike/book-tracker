@@ -937,3 +937,84 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 /* v7.1: Duplikat-Modus-Umschalter */
 .dup-modes { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
 .dup-modes .chip { font-size: 11.5px; }
+
+/* ============================================================
+   v10: Serien-Ansicht, Mehrfachauswahl, Bulk-Aktionen
+   ============================================================ */
+
+/* Ansichts-Umschalter Einzeln/Serien */
+.view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.vt-btn {
+  background: var(--bg-soft); border: none; color: var(--text-dim); cursor: pointer;
+  padding: 8px 11px; font-size: 14px; -webkit-tap-highlight-color: transparent;
+}
+.vt-btn.active { background: rgba(245,201,107,.16); color: var(--accent); }
+
+/* Serien-Kachel */
+.series-card { position: relative; }
+.series-card .stack-chip {
+  position: absolute; top: 8px; left: 8px; z-index: 2; padding: 3px 8px; border-radius: 999px;
+  font-size: 9.5px; font-weight: 800; background: rgba(20,14,9,.82); color: #f5c96b;
+  border: 1px solid rgba(245,201,107,.4); backdrop-filter: blur(4px);
+}
+.series-card .series-badge {
+  position: absolute; top: 8px; right: 8px; z-index: 2; padding: 3px 8px; border-radius: 999px;
+  font-size: 9px; font-weight: 800; backdrop-filter: blur(4px);
+}
+.series-badge.missing { background: rgba(30,10,8,.82); color: #fb7185; border: 1px solid rgba(244,63,94,.5); }
+.series-badge.full { background: rgba(10,25,15,.82); color: #6fbf8f; border: 1px solid rgba(111,191,143,.5); }
+/* Gestapelter „Buchstapel"-Look für Serien */
+.series-card::before {
+  content: ''; position: absolute; inset: 0 -4px -4px 4px; z-index: -1;
+  border-radius: var(--radius); background: var(--bg-card); border: 1px solid var(--border); opacity: .6;
+}
+
+/* Serien-Detail: Bände-Raster + fehlende Bände */
+.series-missing-box, .series-full-box {
+  margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.5;
+}
+.series-missing-box { background: rgba(244,63,94,.1); border: 1px solid rgba(244,63,94,.3); color: var(--text); }
+.series-full-box { background: rgba(111,191,143,.1); border: 1px solid rgba(111,191,143,.3); color: var(--good); font-weight: 700; }
+.series-missing-actions { display: flex; gap: 8px; margin-top: 8px; }
+.band-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px; max-height: 40vh; overflow-y: auto; margin-bottom: 14px; }
+.band-item {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 9px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; transition: border-color .15s, transform .1s;
+}
+.band-item:hover { border-color: var(--accent); }
+.band-item:active { transform: scale(.95); }
+.band-no { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text); }
+.band-status { font-size: 11px; }
+
+/* Mehrfachauswahl */
+.card.selectable { cursor: pointer; }
+.card.selectable .sel-check {
+  position: absolute; top: 8px; left: 8px; z-index: 3; width: 24px; height: 24px; border-radius: 50%;
+  background: rgba(20,14,9,.7); border: 2px solid rgba(255,255,255,.6); color: transparent;
+  display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 900;
+  transition: all .12s;
+}
+.card.selectable.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.card.selectable.selected .sel-check { background: var(--accent); border-color: var(--accent); color: #241a12; }
+.card.selectable.selected .cover, .card.selectable.selected .cover-fallback { opacity: .82; }
+
+/* Bulk-Aktionsleiste (unten) */
+.bulk-bar {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(64px + env(safe-area-inset-bottom) + 8px); z-index: 66;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center;
+  max-width: 94vw; padding: 8px 10px;
+  background: rgba(26,19,15,.97); border: 1px solid rgba(245,201,107,.4);
+  border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.5);
+  animation: toastIn .22s cubic-bezier(.22,1,.36,1);
+}
+@media (min-width: 900px) { .bulk-bar { bottom: 18px; } }
+.bulk-count { color: #f5c96b; font-size: 12.5px; font-weight: 800; padding: 0 6px; }
+.bulk-act {
+  border: 1px solid rgba(255,255,255,.16); border-radius: 999px; padding: 7px 12px; cursor: pointer;
+  background: rgba(255,255,255,.06); color: #f2e9dc; font-size: 12px; font-weight: 700;
+  -webkit-tap-highlight-color: transparent;
+}
+.bulk-act:active { transform: scale(.96); }
+.bulk-act.danger { border-color: rgba(244,63,94,.4); color: #fb7185; }

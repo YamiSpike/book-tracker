@@ -151,7 +151,15 @@
       <option value="title">Sortierung: Titel</option>
       <option value="author">Sortierung: Autor·in</option>
       <option value="rating">Sortierung: Bewertung</option>
+      <option value="publisher">Sortierung: Verlag</option>
+      <option value="year">Sortierung: Erscheinungsjahr</option>
+      <option value="pages">Sortierung: Seitenzahl</option>
     </select>
+    <div class="view-toggle" id="viewToggle" role="group" aria-label="Ansicht">
+      <button class="vt-btn active" data-view="single" title="Einzeltitel" aria-label="Einzeltitel">▦</button>
+      <button class="vt-btn" data-view="series" title="Nach Reihe gruppieren" aria-label="Nach Reihe">📚</button>
+    </div>
+    <button class="btn-ghost" id="selectBtn">☑️ Auswählen</button>
     <button class="btn-ghost" id="rollBtn">🎲 Was lese ich als Nächstes?</button>
     <button class="btn-ghost" id="dupBtn">🧹 Duplikate</button>
     <button class="btn-ghost" id="exportBtn">Export JSON</button>
@@ -332,7 +340,7 @@
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Lese-Challenge &amp; Tagebuch</p>
         <p class="muted" style="margin:0;">🧭 Stimmungs-Picker „Worauf hast du Lust?" · 🎯 Fertig-Prognose bei „Lese gerade" (Restzeit aus Timer-Tempo/Startdatum) · 💡 Bildschirm bleibt beim Lese-Timer an (Wake Lock) · 🎯 Jahres-Leseziel mit Fortschrittsring auf der Startseite · Automatisches Lese-Tagebuch (Start-/Enddatum je Buch) · 🔥 Aktivitäts-Heatmap (26 Wochen) · Zitat des Tages · 📚 Buchreihen-Erkennung mit fehlenden Bänden · ⏱️ Lese-Timer mit Sessions &amp; Lesezeit-Statistik · 🏆 12 Erfolge/Abzeichen · 📚 Jahresrückblick als speicherbares Bild · 📅 Erscheinungs-Radar für Wunschbücher · 🔔 Tägliche Lese-Erinnerung · ≈ Bibliotheks-Wert</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Große Sammlungen &amp; Aufräumen</p>
-        <p class="muted" style="margin:0;">⚡ Flüssig auch bei ~10.000 Titeln (virtualisierte Liste, im RAM gecachte Datenbank) · Treffer-Zähler · 🧹 Duplikat-Erkennung (nach ISBN bzw. Titel + Autor·in) mit Ein-Klick-Bereinigung (je Titel bleibt eins) · 🖼️ Fehlende Cover automatisch nachladen (Open Library, gedrosselt, mit Fortschritt) · 🗑️ Komplette Sammlung zurücksetzen (mit Sicherheitsabfrage) · schneller Massen-Import (CSV/JSON) · Speicher-voll-Warnung · 📰 Zeitschriften als eigener Typ mit Verlag &amp; Ausgabe · 📓 Lesetagebuch (datierte Einträge) · 🖼️ Zitate als teilbare Bild-Karten</p>
+        <p class="muted" style="margin:0;">⚡ Flüssig auch bei ~10.000 Titeln (virtualisierte Liste, im RAM gecachte Datenbank) · Treffer-Zähler · 🧹 Duplikat-Erkennung (nach ISBN bzw. Titel + Autor·in) mit Ein-Klick-Bereinigung (je Titel bleibt eins) · 🖼️ Fehlende Cover automatisch nachladen (Open Library, gedrosselt, mit Fortschritt) · 🗑️ Komplette Sammlung zurücksetzen (mit Sicherheitsabfrage) · schneller Massen-Import (CSV/JSON) · Speicher-voll-Warnung · 📰 Zeitschriften als eigener Typ mit Verlag &amp; Ausgabe · 📓 Lesetagebuch (datierte Einträge) · 🖼️ Zitate als teilbare Bild-Karten · 📚 Serien-Ansicht (Bände einer Reihe als eine Kachel, mit fehlenden Bänden &amp; Shop-Links) · ☑️ Mehrfachauswahl &amp; Bulk-Aktionen (Status/Tag/Löschen für viele Titel auf einmal) · Sortierung auch nach Verlag / Jahr / Seitenzahl · Statistik: Gelesen pro Monat &amp; Top-Verlage · ☁️ Delta-Sync (nur geänderte Sammlungen werden hochgeladen) · IndexedDB-Speicher für sehr große Sammlungen · komprimierter Cloud-Sync</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Empfehlungen</p>
         <p class="muted" style="margin:0;">Personalisierte Buch-Tipps aus deiner Sammlung (Lieblings-Genres, -Autor·innen, Bewertungen) · Begründung pro Empfehlung · Lese-Tipp auf der Startseite</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Statistik</p>
@@ -343,7 +351,7 @@
         <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Kerzenlicht-Glühen im Hero · Gestaffelte Karten-Animationen · Cover-Zoom &amp; Glanz-Effekt · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata) · 🌗 Auto-Theme nach Systemeinstellung</p>
       </div>
     </details>
-    <p class="muted" style="font-size:12px;margin-top:8px;">Version v9</p>
+    <p class="muted" style="font-size:12px;margin-top:8px;">Version v11</p>
   </div>
 </section>
 
@@ -358,7 +366,7 @@
 
 <footer class="appfoot">
   <p>Buchdaten: Google Books · Open Library · Deutsche Nationalbibliothek — Cover © jeweilige Verlage</p>
-  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v9</p>
+  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v11</p>
 </footer>
 
 <script src="js/vendor/lz-string.min.js"></script>
