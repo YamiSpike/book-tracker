@@ -782,9 +782,37 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 .mascot-body .mascot-img {
   width: 100%; height: 100%; display: block; object-fit: contain;
   /* KEIN drop-shadow-Filter: würde auf iPad/Safari bei jedem Bob-Frame neu rastern → Zittern.
-     Der Sticker bringt eigenen Rand + Schatten mit. */
+     Der Sticker bringt eigenen Rand + Schatten mit. Nur transform → GPU, zitterfrei. */
   user-select: none; -webkit-user-drag: none; pointer-events: none;
+  transform-origin: 50% 88%;   /* Squash/Atmen von den Füßen aus → wirkt lebendig, nicht schwebend */
+  animation: fukuAlive 4.8s ease-in-out infinite;
+  will-change: transform;
 }
+/* Lebendigkeit: Atmen (scale) + zwei Blinzler (Squash) + minimales Wiegen — alles am BILD,
+   während der Body separat schwebt (mascotBob). Die Transforms überlagern sich organisch. */
+@keyframes fukuAlive {
+  0%   { transform: scale(1, 1) rotate(0deg); }
+  7%   { transform: scale(1.03, 0.9) rotate(0deg); }   /* Blinzeln 1 (kurzer Squash) */
+  12%  { transform: scale(1, 1) rotate(0deg); }
+  35%  { transform: scale(1.035, 1.045) rotate(-1.2deg); } /* einatmen + leicht neigen */
+  50%  { transform: scale(1.045, 1.05) rotate(0deg); }     /* voll eingeatmet */
+  65%  { transform: scale(1.035, 1.045) rotate(1.2deg); }
+  80%  { transform: scale(1.02, 0.92) rotate(0deg); }  /* Blinzeln 2 */
+  85%  { transform: scale(1, 1) rotate(0deg); }
+  100% { transform: scale(1, 1) rotate(0deg); }
+}
+/* Freude beim Antippen: kurzer Hüpfer mit Überschwingen */
+.mascot.happy .mascot-body { animation: fukuHop .6s cubic-bezier(.28,1.4,.5,1); }
+@keyframes fukuHop {
+  0%   { transform: translate3d(0,0,0) rotate(-2deg); }
+  30%  { transform: translate3d(0,-16px,0) rotate(6deg) scale(1.06); }
+  55%  { transform: translate3d(0,2px,0) rotate(-5deg) scale(.97); }
+  75%  { transform: translate3d(0,-4px,0) rotate(3deg); }
+  100% { transform: translate3d(0,0,0) rotate(-2deg); }
+}
+/* Beim Reden: aufgeregtes Wackeln */
+.mascot.talking .mascot-img { animation: fukuAlive 4.8s ease-in-out infinite, fukuChatter .5s ease-in-out infinite; }
+@keyframes fukuChatter { 0%,100% { rotate: 0deg; } 25% { rotate: -2.5deg; } 75% { rotate: 2.5deg; } }
 .mascot-body:active { animation-play-state: paused; }
 @keyframes mascotBob {
   0%,100% { transform: translate3d(0,0,0) rotate(-2deg); }

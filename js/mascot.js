@@ -3,7 +3,7 @@
 (function () {
   'use strict';
   var STORAGE = 'bk_mascot_hidden';
-  var el, bubbleEl, showBtn, moveTimer, bubbleTimer, idleTimer;
+  var el, bubbleEl, showBtn, moveTimer, bubbleTimer, idleTimer, hopTimer, idleHopTimer;
   var hidden = false;
   try { hidden = localStorage.getItem(STORAGE) === '1'; } catch (e) { /**/ }
 
@@ -71,7 +71,25 @@
     }, 55000 + Math.random() * 40000);
   }
 
+  function hop() {
+    if (!el || hidden) return;
+    el.classList.remove('happy');
+    // Reflow erzwingen, damit die Animation auch bei schnellem Wiederholen neu startet
+    void el.offsetWidth;
+    el.classList.add('happy');
+    clearTimeout(hopTimer);
+    hopTimer = setTimeout(function () { if (el) el.classList.remove('happy'); }, 650);
+  }
+  function scheduleIdleHop() {
+    clearTimeout(idleHopTimer);
+    idleHopTimer = setTimeout(function () {
+      if (!hidden && document.visibilityState === 'visible') hop();
+      scheduleIdleHop();
+    }, 12000 + Math.random() * 12000);
+  }
+
   function onTap() {
+    hop();
     speakRecommendation();
     try { if (navigator.vibrate) navigator.vibrate(10); } catch (e) { /**/ }
   }
@@ -80,10 +98,11 @@
     if (ev) ev.stopPropagation();
     hidden = true;
     try { localStorage.setItem(STORAGE, '1'); } catch (e) { /**/ }
-    if (el) el.style.display = 'none';
+    if (el) { el.style.display = 'none'; el.classList.remove('happy'); }
     if (bubbleEl) bubbleEl.hidden = true;
     if (showBtn) showBtn.hidden = false;
     clearTimeout(moveTimer); clearTimeout(idleTimer); clearTimeout(bubbleTimer);
+    clearTimeout(hopTimer); clearTimeout(idleHopTimer);
   }
 
   function reveal() {
@@ -94,6 +113,8 @@
     clampPlace();
     scheduleMove();
     scheduleIdleTip();
+    scheduleIdleHop();
+    hop();
     speak({ text: 'Wieder da! Tipp mich für Buch-Tipps 🦉' });
   }
 
@@ -127,6 +148,7 @@
       clampPlace();
       scheduleMove();
       scheduleIdleTip();
+      scheduleIdleHop();
     }
     window.addEventListener('resize', function () { if (!hidden) clampPlace(); });
   }
