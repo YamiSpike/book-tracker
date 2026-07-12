@@ -1,5 +1,8 @@
 /* Hon 本 · Bücher Tracker — Service Worker v11.4 */
 const CACHE = 'buecher-v11-4';
+// Cover-Cache ist EIGENSTÄNDIG versioniert und überlebt App-Updates —
+// sonst wären nach jedem Versions-Bump alle Offline-Cover weg
+const COVER_CACHE = 'buecher-covers-v1';
 const ASSETS = [
   './',
   './index.html',
@@ -31,7 +34,7 @@ self.addEventListener('activate', (e) => {
   e.waitUntil(
     (async () => {
       const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+      await Promise.all(keys.filter((k) => k !== CACHE && k !== COVER_CACHE).map((k) => caches.delete(k)));
       await self.clients.claim();
       // Alle offenen Tabs informieren → App prüft version.json und zeigt ggf. den Update-Banner
       const clients = await self.clients.matchAll({ type: 'window' });
@@ -59,7 +62,7 @@ self.addEventListener('fetch', (e) => {
   const coverHosts = ['books.google.com', 'covers.openlibrary.org', 'portal.dnb.de', 's4.anilist.co', 'cdn.myanimelist.net'];
   if (coverHosts.some((h) => url.hostname.includes(h))) {
     e.respondWith(
-      caches.open('buecher-covers-v1').then(async (c) => {
+      caches.open(COVER_CACHE).then(async (c) => {
         const hit = await c.match(req);
         if (hit) return hit;
         try {
