@@ -445,7 +445,7 @@
 
   // ───── Karten-Rendering ─────
   function coverHtml(b) {
-    if (b.cover) return '<img class="cover" loading="lazy" src="' + esc(b.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot;&gt;&lt;div class=&quot;big&quot;&gt;📕&lt;/div&gt;&lt;/div&gt;\'" />';
+    if (b.cover) return '<img class="cover" loading="lazy" width="200" height="300" src="' + esc(b.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot;&gt;&lt;div class=&quot;big&quot;&gt;📕&lt;/div&gt;&lt;/div&gt;\'" />';
     return '<div class="cover-fallback"><div class="big">📕</div><div class="t">' + esc(b.title.slice(0, 46)) + '</div></div>';
   }
   function cardHtml(b, opts) {
@@ -702,7 +702,9 @@
     libShown = 0;
     var grid = $('libGrid');
     grid.innerHTML = '<div id="libSentinel" style="grid-column:1/-1;height:1px"></div>';
-    if (libObserver) libObserver.observe($('libSentinel'));
+    // disconnect() vor observe(): der Observer hält sonst jeden weggeworfenen Sentinel
+    // (ein Node pro Re-Render/Such-Tastendruck) dauerhaft fest → schleichendes Memory-Leak
+    if (libObserver) { libObserver.disconnect(); libObserver.observe($('libSentinel')); }
     renderLibChunk();
     $('emptyLib').hidden = books.length > 0;
   }
@@ -745,7 +747,7 @@
 
   function seriesCardHtml(g) {
     var cover = g.cover
-      ? '<img class="cover" loading="lazy" src="' + esc(g.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot;&gt;&lt;div class=&quot;big&quot;&gt;📚&lt;/div&gt;&lt;/div&gt;\'" />'
+      ? '<img class="cover" loading="lazy" width="200" height="300" src="' + esc(g.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot;&gt;&lt;div class=&quot;big&quot;&gt;📚&lt;/div&gt;&lt;/div&gt;\'" />'
       : '<div class="cover-fallback"><div class="big">📚</div><div class="t">' + esc(g.name.slice(0, 40)) + '</div></div>';
     var missingBadge = g.missing && g.missing.length
       ? '<span class="series-badge missing">' + g.missing.length + ' fehlen</span>'
@@ -1480,7 +1482,7 @@
 
     inner.innerHTML =
       '<div class="detail-hero">'
-      + (b.cover ? '<img src="' + esc(b.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot;&gt;📕&lt;/div&gt;\'" />' : '<div class="cover-fallback">📕</div>')
+      + (b.cover ? '<img width="110" height="165" src="' + esc(b.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot;&gt;📕&lt;/div&gt;\'" />' : '<div class="cover-fallback">📕</div>')
       + '<div class="titles"><h2>' + esc(b.title) + '</h2>'
       + '<div class="author">' + esc(b.authors.join(', ') || 'Unbekannt') + '</div>'
       + '<div class="facts">' + facts.map(function (f) { return '<span class="fact-pill">' + esc(f) + '</span>'; }).join('') + '</div>'
@@ -2248,7 +2250,7 @@
     var i = 0, spins = Math.min(14, pool.length * 3 + 4);
     var iv = setInterval(function () {
       var b = (i < spins - 1) ? pool[Math.floor(Math.random() * pool.length)] : winner;
-      cov.innerHTML = b.cover ? '<img src="' + esc(b.cover) + '" alt="" />' : '<div class="cover-fallback" style="width:110px;aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;font-size:30px;">📕</div>';
+      cov.innerHTML = b.cover ? '<img width="150" height="225" src="' + esc(b.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot; style=&quot;width:110px;aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;font-size:30px;&quot;&gt;📕&lt;/div&gt;\'" />' : '<div class="cover-fallback" style="width:110px;aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;font-size:30px;">📕</div>';
       nam.textContent = b.title;
       i++;
       if (i >= spins) {

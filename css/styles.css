@@ -395,7 +395,9 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 /* ───── Toast ───── */
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%);
-  bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 80;
+  /* über den Vollbild-Modals (100030, Scanner/Manuell/Admin), unter dem Update-Banner (100060) —
+     sonst sind Meldungen wie „Bitte einen Titel eingeben." hinter dem Modal-Overlay unsichtbar */
+  bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 100050;
   background: rgba(26,19,15,.96); color: #f2e9dc; border: 1px solid rgba(245,201,107,.35);
   padding: 10px 18px; border-radius: 12px; font-size: 13px; font-weight: 600;
   box-shadow: 0 10px 30px rgba(0,0,0,.5); max-width: 92vw; text-align: center;
