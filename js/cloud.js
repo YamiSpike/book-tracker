@@ -486,7 +486,7 @@
   var lastVals = {};
 
   // ───── Styles ─────
-  function overlayCss() { return 'position:fixed;inset:0;z-index:100020;background:rgba(10,7,5,.66);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px;-webkit-tap-highlight-color:transparent'; }
+  function overlayCss() { return 'position:fixed;inset:0;z-index:100020;background:rgba(10,7,5,.66);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px;-webkit-tap-highlight-color:transparent'; }
   function cardCss() { return 'position:relative;width:100%;max-width:340px;max-height:88vh;overflow:auto;background:rgba(28,21,16,.98);border:1px solid rgba(245,201,107,.28);border-radius:16px;padding:18px;box-shadow:0 24px 64px rgba(0,0,0,.6);font-family:var(--font-ui,system-ui,sans-serif)'; }
   function inputCss() { return 'width:100%;box-sizing:border-box;margin-bottom:9px;padding:11px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#fff;font-size:13px;font-family:inherit;outline:none'; }
   function primaryBtnCss(b) { return 'width:100%;padding:11px;border-radius:11px;border:none;background:' + (b ? '#444' : 'linear-gradient(135deg,#d97706,#92400e)') + ';color:#fff;cursor:' + (b ? 'default' : 'pointer') + ';font-size:13px;font-weight:800;font-family:inherit'; }

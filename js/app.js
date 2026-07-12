@@ -745,7 +745,7 @@
 
   function seriesCardHtml(g) {
     var cover = g.cover
-      ? '<img class="cover" loading="lazy" src="' + esc(g.cover) + '" alt="" />'
+      ? '<img class="cover" loading="lazy" src="' + esc(g.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot;&gt;&lt;div class=&quot;big&quot;&gt;📚&lt;/div&gt;&lt;/div&gt;\'" />'
       : '<div class="cover-fallback"><div class="big">📚</div><div class="t">' + esc(g.name.slice(0, 40)) + '</div></div>';
     var missingBadge = g.missing && g.missing.length
       ? '<span class="series-badge missing">' + g.missing.length + ' fehlen</span>'
@@ -1480,7 +1480,7 @@
 
     inner.innerHTML =
       '<div class="detail-hero">'
-      + (b.cover ? '<img src="' + esc(b.cover) + '" alt="" />' : '<div class="cover-fallback">📕</div>')
+      + (b.cover ? '<img src="' + esc(b.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot;&gt;📕&lt;/div&gt;\'" />' : '<div class="cover-fallback">📕</div>')
       + '<div class="titles"><h2>' + esc(b.title) + '</h2>'
       + '<div class="author">' + esc(b.authors.join(', ') || 'Unbekannt') + '</div>'
       + '<div class="facts">' + facts.map(function (f) { return '<span class="fact-pill">' + esc(f) + '</span>'; }).join('') + '</div>'
