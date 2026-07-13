@@ -4,7 +4,19 @@
    der NUTZER über einen dezenten Banner — ein Loop ist per Konstruktion unmöglich. */
 (function () {
   'use strict';
-  var APP_VERSION = 'v12'; // bei jedem Release zusammen mit sw.js-CACHE + BUST (?v=) + version.json bumpen
+  var APP_VERSION = 'v12.1'; // bei jedem Release zusammen mit sw.js-CACHE + BUST (?v=) + version.json bumpen
+
+  // ?_v nach dem Update-Load wieder aus der URL entfernen: bliebe der Parameter
+  // stehen, wäre JEDER spätere Reload dieses Tabs ein erzwungener Netz-Load —
+  // nach einem Deploy also ein STILLES Update. Die App soll nach dem Update
+  // wieder cache-first (auf ihrer Version) starten.
+  try {
+    if (new URLSearchParams(location.search).has('_v')) {
+      var _u = new URL(location.href); _u.searchParams.delete('_v');
+      history.replaceState(null, '', _u.pathname + _u.search + _u.hash);
+    }
+  } catch (e) { /**/ }
+
 
   function showUpdateBanner(newV) {
     try {
