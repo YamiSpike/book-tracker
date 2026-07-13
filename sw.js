@@ -1,5 +1,5 @@
-/* Hon 本 · Bücher Tracker — Service Worker v11.4 */
-const CACHE = 'buecher-v11-4';
+/* Hon 本 · Bücher Tracker — Service Worker v11.5 */
+const CACHE = 'buecher-v11-5';
 // Cover-Cache ist EIGENSTÄNDIG versioniert und überlebt App-Updates —
 // sonst wären nach jedem Versions-Bump alle Offline-Cover weg
 const COVER_CACHE = 'buecher-covers-v1';

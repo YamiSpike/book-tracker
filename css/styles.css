@@ -763,7 +763,10 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 
 /* ───── Maskottchen „Fuku" ───── */
 .mascot {
-  position: fixed; z-index: 70;
+  /* UNTER Detail-Modal (60), Timer-Bar (65) & Bulk-Bar (66): Deko darf offene
+     Overlays nicht verdecken und dort keine Taps abfangen (alle anderen Modals
+     liegen bei 100020+ ohnehin über dem Maskottchen) */
+  position: fixed; z-index: 55;
   width: 92px; height: 92px;
   left: 0; top: 0;
   transform: translate3d(16px, 120px, 0);
@@ -858,7 +861,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
   font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit;
 }
 .mascot-show {
-  position: fixed; right: 12px; z-index: 70;
+  position: fixed; right: 12px; z-index: 55;
   bottom: calc(76px + env(safe-area-inset-bottom));
   width: 46px; height: 46px; border-radius: 50%;
   border: 1px solid var(--border); background: var(--bg-card);
