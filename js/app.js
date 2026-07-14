@@ -730,6 +730,10 @@
   function setSearchMode(mode) {
     if (!MODE_CFG[mode]) return;
     searchMode = mode;
+    // Eine vorgemerkte Scan-ISSN gilt nur für den Zeitschriften-Modus — beim
+    // Wechsel zu Buch/Manga verwerfen, damit das manuelle Formular später nicht
+    // fälschlich als Zeitschrift mit veralteter ISSN vorbelegt wird.
+    if (mode !== 'magazin') pendingIssn = '';
     var row = $('searchModeRow');
     if (row) row.querySelectorAll('.mode-chip').forEach(function (x) { x.classList.toggle('active', x.dataset.mode === mode); });
     var sub = $('searchSub'); if (sub) sub.textContent = MODE_CFG[mode].sub;
