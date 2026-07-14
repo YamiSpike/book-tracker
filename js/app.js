@@ -357,6 +357,121 @@
     });
   }
 
+  // ───── v13: Zeitschriften/Magazine (Google-Books-Periodika + deutsche Verlage + DNB/ISSN) ─────
+  // Die großen deutschen Zeitschriften-Verlage — Filter analog zu DE_MANGA_VERLAGE.
+  var DE_MAGAZIN_VERLAGE = /bauer|heinrich\s*bauer|gruner\s*\+?\s*jahr|g\s*\+\s*j|burda|hubert\s*burda|axel\s*springer|springer|funke|spiegel[- ]?verlag|der\s*spiegel|zeit[- ]?verlag|die\s*zeit|cond[eé]\s*nast|egmont|ehapa|panini|klambt|motor[- ]?presse/i;
+
+  // Normalisiert ein Google-Books-/DNB-Objekt auf das Magazin-Schema (kind=magazin).
+  function normMagazine(b) {
+    return {
+      id: b.id, title: b.title || 'Ohne Titel', authors: b.authors || [], cover: b.cover || '',
+      year: b.year || '', pages: b.pages || 0,
+      categories: (b.categories && b.categories.length) ? b.categories : ['Zeitschrift'],
+      desc: b.desc || '', lang: b.lang || 'de', isbn: b.isbn || '', issn: b.issn || '',
+      publisher: b.publisher || '', issue: b.issue || '', gRating: b.gRating || 0, kind: 'magazin'
+    };
+  }
+
+  // Google Books im Periodika-Modus (printType=magazines) — echte Zeitschriften-Ausgaben.
+  function gbMagazineSearch(q, maxResults) {
+    var url = GB + '?q=' + encodeURIComponent(q) + '&maxResults=' + (maxResults || 20) + '&printType=magazines';
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error('Google Books nicht erreichbar (' + r.status + ')');
+      return r.json();
+    }).then(function (j) {
+      return (j.items || []).map(normVolume).filter(function (b) { return b.title; }).map(normMagazine);
+    });
+  }
+
+  // Zusätzlich: deutsche Verlags-Magazine als Buchausgaben (Sonderhefte, Sammelmagazine),
+  // gefiltert über die Zeitschriften-Verlags-Regex (analog zum Manga-Muster).
+  function gbMagazinePublisherSearch(q, maxResults) {
+    var url = GB + '?q=' + encodeURIComponent(q) + '&maxResults=' + (maxResults || 20) + '&printType=books&langRestrict=de';
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error('Google Books nicht erreichbar (' + r.status + ')');
+      return r.json();
+    }).then(function (j) {
+      return (j.items || []).map(normVolume).filter(function (b) {
+        var cat = (b.categories || []).join(' ');
+        return b.title && (DE_MAGAZIN_VERLAGE.test(b.publisher || '') || /magazin|zeitschrift|periodical|comic/i.test(cat));
+      }).map(normMagazine);
+    });
+  }
+
+  // DNB für deutsche Zeitschriften/ISSN — MARC21 wiederverwenden, ISSN aus Feld 022.
+  // Nur echte Periodika (mit ISSN) werden übernommen; q kann auch ein ISSN sein.
+  function dnbMagazineSearch(q, maxResults) {
+    var raw = String(q || '').trim();
+    if (!raw) return Promise.resolve([]);
+    var issnDigits = raw.replace(/[^0-9Xx]/g, '');
+    var isIssnQuery = /^\d{7}[\dXx]$/.test(issnDigits);
+    var cql = isIssnQuery ? ('NUM=' + issnDigits) : ('WOE="' + raw.replace(/"/g, '') + '"');
+    var url = 'https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve'
+      + '&query=' + encodeURIComponent(cql)
+      + '&recordSchema=MARC21-xml&maximumRecords=' + Math.min(maxResults || 15, 15);
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error('DNB nicht erreichbar (' + r.status + ')');
+      return r.text();
+    }).then(function (xml) {
+      var doc = new DOMParser().parseFromString(xml, 'application/xml');
+      var recs = doc.getElementsByTagNameNS('http://www.loc.gov/MARC21/slim', 'record');
+      var out = [];
+      function df(rec, tag, code) {
+        var fields = rec.querySelectorAll('datafield[tag="' + tag + '"]');
+        var vals = [];
+        for (var i = 0; i < fields.length; i++) {
+          var sf = fields[i].querySelectorAll('subfield[code="' + code + '"]');
+          for (var k = 0; k < sf.length; k++) vals.push(sf[k].textContent.trim());
+        }
+        return vals;
+      }
+      for (var i = 0; i < recs.length; i++) {
+        var rec = recs[i];
+        var issn = (df(rec, '022', 'a')[0] || '').replace(/[^0-9Xx-]/g, '');
+        var title = (df(rec, '245', 'a')[0] || '').replace(/\s*[/:;]\s*$/, '');
+        if (!title) continue;
+        // Nur Serien/Periodika (mit ISSN) — sonst fände die Magazin-Suche auch Bücher
+        if (!issn && !isIssnQuery) continue;
+        var ctrl = rec.querySelectorAll('controlfield[tag="001"]');
+        var id = 'dnb-mag-' + ((ctrl[0] && ctrl[0].textContent.trim()) || (title + i));
+        var year = ((df(rec, '264', 'c')[0] || df(rec, '260', 'c')[0] || '').match(/\d{4}/) || [''])[0];
+        var publisher = (df(rec, '264', 'b')[0] || df(rec, '260', 'b')[0] || '').replace(/[,;:]\s*$/, '').trim();
+        out.push(normMagazine({
+          id: id, title: title,
+          authors: df(rec, '110', 'a').concat(df(rec, '710', 'a')).slice(0, 2),
+          cover: '', year: year, publisher: publisher,
+          categories: df(rec, '650', 'a').slice(0, 3), lang: 'de', issn: issn
+        }));
+      }
+      return out;
+    });
+  }
+
+  // Magazin-Quellen parallel zusammenführen. Sparse ist normal: leere Liste wird NICHT
+  // als Fehler geworfen — doSearch zeigt dann einen freundlichen Hinweis + „Manuell erfassen".
+  function searchMagazines(q, maxResults) {
+    var n = maxResults || 20;
+    return Promise.allSettled([gbMagazineSearch(q, n), gbMagazinePublisherSearch(q, 15), dnbMagazineSearch(q, 15)]).then(function (rs) {
+      var lists = rs.map(function (r) { return r.status === 'fulfilled' ? r.value : []; });
+      var map = Object.create(null), order = [];
+      lists.forEach(function (list) {
+        list.forEach(function (b) {
+          var k = bookKey(b);
+          var prev = map[k];
+          if (!prev) { map[k] = b; order.push(k); return; }
+          if (!prev.cover && b.cover) prev.cover = b.cover;
+          if (!prev.issn && b.issn) prev.issn = b.issn;
+          if (!prev.publisher && b.publisher) prev.publisher = b.publisher;
+          if (!prev.year && b.year) prev.year = b.year;
+          if (!prev.desc && b.desc) prev.desc = b.desc;
+        });
+      });
+      var merged = order.map(function (k) { return map[k]; });
+      merged.sort(function (a, b) { return (b.cover ? 1 : 0) - (a.cover ? 1 : 0); });
+      return merged;
+    });
+  }
+
   // Alle Quellen PARALLEL abfragen und zusammenführen — beste Trefferquote,
   // und der Ausfall einer Quelle (z.B. Google-Tageskontingent) fällt nicht auf.
   // Duplikate: erster Treffer gewinnt, spätere füllen fehlende Felder (Cover/ISBN/Beschreibung) auf.
@@ -585,14 +700,58 @@
   // ───── Suche ─────
   var lastSearch = [];
   var lastSimilar = [];    // v6: „Ähnliche finden"-Ergebnisse im Detail
-  var searchMode = 'buch'; // 'buch' | 'manga'
+  var searchMode = 'buch'; // 'buch' | 'manga' | 'magazin'
+  var pendingIssn = '';    // v13: per ISSN-Scan vorbefüllte Zeitschrift (für „Manuell erfassen")
+
+  // v13: Konfiguration je Suchmodus (Untertitel, Platzhalter, Schnellfilter-Chips)
+  var MODE_CFG = {
+    buch: {
+      sub: 'Titel, Autor·in oder ISBN — 3 Quellen parallel: Google Books · Open Library · Deutsche Nationalbibliothek',
+      ph: 'z. B. „Der Herr der Ringe" oder „Haruki Murakami"…',
+      chips: [['subject:fiction bestseller', 'Romane'], ['subject:fantasy', 'Fantasy'], ['subject:thriller', 'Thriller'],
+        ['subject:science fiction', 'Sci-Fi'], ['subject:biography', 'Biografien'], ['subject:history', 'Geschichte'], ['subject:self-help', 'Ratgeber']]
+    },
+    manga: {
+      sub: 'Titel oder Genre — 3 Quellen: AniList · MyAnimeList (Jikan) · deutsche Verlagsausgaben',
+      ph: 'z. B. „One Piece" oder „Junji Ito"…',
+      chips: [['One Piece', 'One Piece'], ['action', 'Action'], ['romance', 'Romance'], ['fantasy', 'Fantasy'],
+        ['comedy', 'Comedy'], ['slice of life', 'Slice of Life'], ['horror', 'Horror']]
+    },
+    magazin: {
+      sub: 'Titel, Verlag oder ISSN — Google Books (Periodika) · deutsche Zeitschriften-Verlage · DNB (ISSN)',
+      ph: 'z. B. „Der Spiegel", „GEO" oder „Landlust"…',
+      chips: [['Der Spiegel', 'Spiegel'], ['GEO', 'GEO'], ['Stern', 'Stern'], ['Landlust', 'Landlust'],
+        ['National Geographic', 'National Geographic'], ['Computer', 'Computer'], ['LEGO', 'Kinder/Comic']]
+    }
+  };
+
+  // v13: Suchmodus setzen (Untertitel, Platzhalter, Chips, aktiver Mode-Chip) — von
+  // Klick-Handler UND ISSN-Scan genutzt, damit beide Wege konsistent bleiben.
+  function setSearchMode(mode) {
+    if (!MODE_CFG[mode]) return;
+    searchMode = mode;
+    var row = $('searchModeRow');
+    if (row) row.querySelectorAll('.mode-chip').forEach(function (x) { x.classList.toggle('active', x.dataset.mode === mode); });
+    var sub = $('searchSub'); if (sub) sub.textContent = MODE_CFG[mode].sub;
+    var inp = $('searchInput'); if (inp) inp.placeholder = MODE_CFG[mode].ph;
+    // Scannen bleibt in jedem Modus möglich (ISBN → Buch/Manga, ISSN/EAN-977 → Zeitschrift)
+    var scan = $('scanBtn'); if (scan) scan.style.display = '';
+    var qc = $('quickChips');
+    if (qc) qc.innerHTML = MODE_CFG[mode].chips.map(function (c) {
+      return '<button class="chip" data-q="' + esc(c[0]) + '">' + esc(c[1]) + '</button>';
+    }).join('');
+  }
+
   function doSearch(q) {
     q = (q || '').trim();
     if (!q) return;
     var grid = $('searchGrid');
     $('searchEmpty').hidden = true;
     grid.innerHTML = '<div class="skeleton-grid"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
-    (searchMode === 'manga' ? searchMangas(q, 20) : searchBooks(q, 20)).then(function (items) {
+    var runner = searchMode === 'manga' ? searchMangas(q, 20)
+      : searchMode === 'magazin' ? searchMagazines(q, 20)
+        : searchBooks(q, 20);
+    runner.then(function (items) {
       // Duplikate (gleicher Titel+Autor) zusammenfassen
       var seen = {}, out = [];
       items.forEach(function (b) { var k = bookKey(b); if (!seen[k]) { seen[k] = 1; out.push(b); } });
@@ -1437,6 +1596,7 @@
     if (b.kind === 'magazin') {
       facts.push('📰 Zeitschrift');
       if (b.issue) facts.push('Ausgabe ' + b.issue);
+      if (b.issn) facts.push('ISSN ' + b.issn);
     }
     if (b.publisher) facts.push('🏢 ' + b.publisher);
     if (own && own.format && FORMAT_LBL[own.format]) facts.push(FORMAT_LBL[own.format]);
@@ -2021,6 +2181,42 @@
     if (m) m.remove();
   }
 
+  // v13: ISSN aus einem EAN-13-Zeitschriften-Barcode (Präfix 977) ableiten.
+  // Stellen 4–10 = ISSN-Basis (7 Ziffern); die ISSN-Prüfziffer wird NEU berechnet
+  // (Modulo 11, Gewichte 8..2) — die EAN-Prüfziffer passt nicht zur ISSN.
+  function issnFromEan(ean) {
+    if (!/^977\d{10}$/.test(ean)) return '';
+    var base = ean.slice(3, 10); // 7 Ziffern
+    var sum = 0;
+    for (var i = 0; i < 7; i++) sum += parseInt(base.charAt(i), 10) * (8 - i);
+    var chk = (11 - (sum % 11)) % 11;
+    return base.slice(0, 4) + '-' + base.slice(4) + (chk === 10 ? 'X' : String(chk));
+  }
+
+  // v13: Zentraler Scan-Handler. EAN-13 mit Präfix 977 = Zeitschrift (ISSN),
+  // sonst normale ISBN (Buch/Manga wie bisher).
+  function onCodeScanned(raw) {
+    var digits = String(raw || '').replace(/[^0-9Xx]/g, '');
+    if (/^977\d{10}$/.test(digits)) {
+      onIssnScanned(issnFromEan(digits) || digits);
+      return;
+    }
+    onIsbnScanned(digits);
+  }
+
+  // v13: Gescannte Zeitschrift. In den Magazin-Modus wechseln, ISSN als Suchbegriff
+  // setzen und eine Best-Effort-Suche starten. Die ISSN bleibt für „Manuell erfassen"
+  // vorbefüllt (pendingIssn) — so geht das Anlegen IMMER, auch ohne Treffer.
+  function onIssnScanned(issn) {
+    stopScanner();
+    toast('✓ ISSN erkannt: ' + issn);
+    pendingIssn = issn;
+    setSearchMode('magazin');
+    var inp = $('searchInput');
+    if (inp) inp.value = issn;
+    doSearch(issn);
+  }
+
   // Gescannte ISBN weiterverarbeiten. ISBN funktioniert über Google Books —
   // findet sowohl Bücher als auch deutsche Manga-Verlagsausgaben. Ergebnis in den aktiven Modus einsortieren.
   function onIsbnScanned(isbn) {
@@ -2059,7 +2255,7 @@
     m.addEventListener('click', function (e) { if (e.target === m) stopScanner(); });
     document.getElementById('scanManualGo').addEventListener('click', function () {
       var v = (document.getElementById('scanManualInput').value || '').replace(/[^0-9Xx]/g, '');
-      if (v.length >= 10) onIsbnScanned(v); else toast('Bitte eine gültige ISBN eingeben (10 oder 13 Stellen).');
+      if (v.length >= 10) onCodeScanned(v); else toast('Bitte eine gültige ISBN/ISSN-EAN eingeben (10, 13 Stellen).');
     });
     return m;
   }
@@ -2102,7 +2298,7 @@
               if (!codes || !codes.length) return;
               var isbn = (codes[0].rawValue || '').replace(/[^0-9Xx]/g, '');
               if (isbn.length < 10) return;
-              onIsbnScanned(isbn);
+              onCodeScanned(isbn);
             }).catch(function () {});
           }, 350);
         }).catch(function () { stopScanner(); toast('Kamera-Zugriff abgelehnt — ISBN bitte eintippen.'); });
@@ -2123,7 +2319,7 @@
         function (result) {
           if (!result) return;
           var isbn = (result.getText ? result.getText() : String(result)).replace(/[^0-9Xx]/g, '');
-          if (isbn.length >= 10) onIsbnScanned(isbn);
+          if (isbn.length >= 10) onCodeScanned(isbn);
         }
       ).catch(function () { toast('Kamera-Zugriff abgelehnt — ISBN bitte eintippen.'); });
     }).catch(function () {
@@ -2183,6 +2379,7 @@
       + '<div class="mf-row"><input class="mf" id="mfPages" type="number" inputmode="numeric" placeholder="Seiten" />'
       + '<input class="mf" id="mfYear" type="number" inputmode="numeric" placeholder="Jahr" /></div>'
       + '<input class="mf" id="mfIssue" placeholder="Ausgabe / Nr. (z. B. 08/2026)" style="display:none" />'
+      + '<input class="mf" id="mfIssn" placeholder="ISSN (z. B. 0038-7452)" inputmode="numeric" style="display:none" />'
       + '<input class="mf" id="mfPublisher" placeholder="Verlag" />'
       + '<input class="mf" id="mfGenre" placeholder="Genre / Thema (z. B. Fantasy, Wissen)" />'
       + '<input class="mf" id="mfCover" placeholder="Cover-Bild-URL (optional)" />'
@@ -2191,13 +2388,22 @@
     var close = function () { m.remove(); };
     m.querySelector('.manual-close').addEventListener('click', close);
     m.addEventListener('click', function (e) { if (e.target === m) close(); });
-    // Ausgabe-Feld nur bei Zeitschriften zeigen
-    var kindSel = m.querySelector('#mfKind'), issueEl = m.querySelector('#mfIssue');
-    kindSel.addEventListener('change', function () {
-      issueEl.style.display = kindSel.value === 'magazin' ? '' : 'none';
-      m.querySelector('h3').textContent = kindSel.value === 'magazin' ? '📰 Zeitschrift erfassen'
+    // Ausgabe- + ISSN-Feld nur bei Zeitschriften zeigen
+    var kindSel = m.querySelector('#mfKind'), issueEl = m.querySelector('#mfIssue'), issnEl = m.querySelector('#mfIssn');
+    function syncKindFields() {
+      var isMag = kindSel.value === 'magazin';
+      issueEl.style.display = isMag ? '' : 'none';
+      issnEl.style.display = isMag ? '' : 'none';
+      m.querySelector('h3').textContent = isMag ? '📰 Zeitschrift erfassen'
         : kindSel.value === 'manga' ? '🎌 Manga erfassen' : '✍️ Eigenes Buch erfassen';
-    });
+    }
+    kindSel.addEventListener('change', syncKindFields);
+    // v13: Aus dem Magazin-Modus oder nach einem ISSN-Scan direkt als Zeitschrift vorbelegen
+    if (searchMode === 'magazin' || pendingIssn) {
+      kindSel.value = 'magazin';
+      if (pendingIssn) { issnEl.value = pendingIssn; pendingIssn = ''; }
+      syncKindFields();
+    }
     m.querySelector('#mfSave').addEventListener('click', function () {
       var title = (m.querySelector('#mfTitle').value || '').trim();
       if (!title) { toast('Bitte einen Titel eingeben.'); m.querySelector('#mfTitle').focus(); return; }
@@ -2205,6 +2411,7 @@
       var kind = kindSel.value;
       var genre = (m.querySelector('#mfGenre').value || '').trim();
       var issue = (issueEl.value || '').trim();
+      var issn = (issnEl.value || '').trim();
       var cover = (m.querySelector('#mfCover').value || '').trim();
       if (cover && !/^https:\/\//.test(cover)) cover = '';
       var catPrefix = kind === 'manga' ? 'Manga / ' : kind === 'magazin' ? 'Zeitschrift / ' : '';
@@ -2216,7 +2423,7 @@
         pages: parseInt(m.querySelector('#mfPages').value, 10) || 0,
         categories: genre ? [catPrefix + genre] : [],
         desc: '', lang: 'de', isbn: '', publisher: (m.querySelector('#mfPublisher').value || '').trim(),
-        issue: issue, gRating: 0
+        issue: issue, issn: (kind === 'magazin' ? issn : ''), gRating: 0
       };
       if (kind === 'manga') book.kind = 'manga';
       if (kind === 'magazin') book.kind = 'magazin';
@@ -2602,26 +2809,10 @@
       doSearch(c.dataset.q);
     });
 
-    // v4: Suchmodus Bücher ↔ Mangas (Quellen + Schnellfilter wechseln mit)
-    var CHIP_SETS = {
-      buch: [['subject:fiction bestseller', 'Romane'], ['subject:fantasy', 'Fantasy'], ['subject:thriller', 'Thriller'],
-        ['subject:science fiction', 'Sci-Fi'], ['subject:biography', 'Biografien'], ['subject:history', 'Geschichte'], ['subject:self-help', 'Ratgeber']],
-      manga: [['One Piece', 'One Piece'], ['action', 'Action'], ['romance', 'Romance'], ['fantasy', 'Fantasy'],
-        ['comedy', 'Comedy'], ['slice of life', 'Slice of Life'], ['horror', 'Horror']]
-    };
+    // v13: Suchmodus Bücher ↔ Mangas ↔ Zeitschriften (Quellen + Schnellfilter wechseln mit)
     $('searchModeRow').addEventListener('click', function (e) {
       var mc = e.target.closest('.mode-chip'); if (!mc || mc.dataset.mode === searchMode) return;
-      searchMode = mc.dataset.mode;
-      document.querySelectorAll('#searchModeRow .mode-chip').forEach(function (x) { x.classList.toggle('active', x === mc); });
-      $('searchSub').textContent = searchMode === 'manga'
-        ? 'Titel oder Genre — 2 Quellen parallel: AniList · MyAnimeList (Jikan)'
-        : 'Titel, Autor·in oder ISBN — 3 Quellen parallel: Google Books · Open Library · Deutsche Nationalbibliothek';
-      $('searchInput').placeholder = searchMode === 'manga' ? 'z. B. „One Piece" oder „Junji Ito"…' : 'z. B. „Der Herr der Ringe" oder „Haruki Murakami"…';
-      // Scannen bleibt auch im Manga-Modus möglich: deutsche Manga-Ausgaben haben eine ISBN
-      $('scanBtn').style.display = '';
-      $('quickChips').innerHTML = CHIP_SETS[searchMode].map(function (c) {
-        return '<button class="chip" data-q="' + esc(c[0]) + '">' + esc(c[1]) + '</button>';
-      }).join('');
+      setSearchMode(mc.dataset.mode);
       $('searchGrid').innerHTML = '';
       $('searchEmpty').hidden = false;
       if ($('searchInput').value.trim()) doSearch($('searchInput').value);
