@@ -1944,6 +1944,7 @@
     var vt = $('viewToggle'); if (vt) vt.style.display = '';
     $('selectBtn').textContent = '☑️ Auswählen';
     var bar = $('bulkBar'); if (bar) bar.remove();
+    syncBottomOverlay();
     renderLib();
   }
   function updateBulkBar() {
@@ -1961,6 +1962,7 @@
     bar.querySelectorAll('.bulk-act').forEach(function (btn) {
       btn.addEventListener('click', function () { doBulk(btn.dataset.bulk); });
     });
+    syncBottomOverlay();
   }
   function selectedIdList() { return Object.keys(selectedIds); }
   function doBulk(action) {
@@ -2528,7 +2530,7 @@
     var s = activeSess();
     var bar = document.getElementById('timerBar');
     clearInterval(timerTick); timerTick = null;
-    if (!s) { if (bar) bar.remove(); return; }
+    if (!s) { if (bar) { bar.remove(); syncBottomOverlay(); } return; }
     var b = findInLib(s.bookId);
     if (!bar) {
       bar = document.createElement('div');
@@ -2544,6 +2546,7 @@
       bar.querySelector('#timerStop').addEventListener('click', stopSession);
     }
     draw();
+    syncBottomOverlay();
     timerTick = setInterval(function () {
       var el = document.getElementById('timerTime');
       if (el) el.textContent = fmtElapsed(Date.now() - s.start);
@@ -2783,6 +2786,42 @@
     if (themeMode() === 'auto') applySettings();
   });
 
+  // ───── Layout: Platz für schwebende Bottom-Leisten freihalten ─────
+  // Bulk- und Timer-Leiste liegen fix über dem Dokument-Scroller. Ihre Höhe ist
+  // NICHT konstant (die Bulk-Leiste bricht auf schmalen Geräten auf bis zu 4
+  // Zeilen um ≈ 150px), darum wird sie gemessen statt geraten und als
+  // --hon-overlay-h an das body-padding-bottom durchgereicht. Sonst stehen die
+  // letzte Kartenreihe und der Footer hinter der Leiste, ohne Scroll-Reserve.
+  var overlayH = -1;
+  var overlayRO = ('ResizeObserver' in window)
+    ? new ResizeObserver(function () { measureBottomOverlay(); })
+    : null;
+  function measureBottomOverlay() {
+    var h = 0;
+    ['bulkBar', 'timerBar'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var r = el.getBoundingClientRect();
+      // + 8px = Abstand der Leiste zur Tab-Leiste (CSS bottom-Offset)
+      if (r.height) h = Math.max(h, Math.round(r.height) + 8);
+    });
+    if (h === overlayH) return; // kein unnötiges Schreiben → keine RO-Schleife
+    overlayH = h;
+    document.documentElement.style.setProperty('--hon-overlay-h', h + 'px');
+  }
+  // Nach Ein-/Ausblenden einer Leiste aufrufen: neu messen + Größenänderungen
+  // (Umbruch beim Drehen, längerer Zähler) beobachten
+  function syncBottomOverlay() {
+    if (overlayRO) {
+      overlayRO.disconnect();
+      ['bulkBar', 'timerBar'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) overlayRO.observe(el);
+      });
+    }
+    measureBottomOverlay();
+  }
+
   // ───── Init ─────
   function init() {
     applySettings();
@@ -2852,6 +2891,26 @@
     // v6: Manuell erfassen
     $('manualEmptyBtn').addEventListener('click', openManualForm);
     $('manualBtn').addEventListener('click', openManualForm);
+
+    // iOS-Safari: die ein-/ausblendende Toolbar verschiebt das visuelle Viewport
+    // gegen das Layout-Viewport → die fixe Tab-Leiste wirkt versetzt. Ohne
+    // Toolbar (Desktop/Standalone) ist hid = 0 → No-Op.
+    (function () {
+      var vv = window.visualViewport, tab = document.getElementById('mainTabs');
+      if (!vv || !tab) return;
+      var raf = 0;
+      function apply() {
+        raf = 0;
+        // Ab 900px sitzt die Leiste sticky OBEN — dort darf nicht verschoben werden
+        if (getComputedStyle(tab).position !== 'fixed') { tab.style.transform = ''; return; }
+        var hid = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+        tab.style.transform = hid > 1 ? ('translateY(-' + hid + 'px)') : '';
+      }
+      function s() { if (!raf) raf = requestAnimationFrame(apply); }
+      vv.addEventListener('resize', s);
+      vv.addEventListener('scroll', s);
+      apply();
+    })();
 
     // Modal
     $('modalClose').addEventListener('click', closeDetail);

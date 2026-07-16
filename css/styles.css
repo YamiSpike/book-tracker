@@ -55,7 +55,11 @@ html, body {
   min-height: 100vh;
   transition: background .25s, color .25s;
 }
-body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+/* Platz unter dem Inhalt = Tab-Leiste + Safe-Area + ggf. schwebende Bottom-Leisten.
+   --hon-overlay-h wird von app.js gemessen (Bulk-/Timer-Leiste brechen auf schmalen
+   Geräten mehrzeilig um → bis ~150px); ohne diesen Platz verschwinden die letzten
+   Karten und der Footer dahinter, ohne dass man weiterscrollen kann. */
+body { padding-bottom: calc(64px + var(--hon-overlay-h, 0px) + env(safe-area-inset-bottom)); }
 
 /* PFLICHT: Form-Elemente erben die UI-Schrift (rendern sonst Arial) */
 button, input, select, textarea { font-family: inherit; }
@@ -295,6 +299,9 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
   border-radius: 20px 20px 0 0; position: relative;
   animation: sheetUp .26s cubic-bezier(.22,1,.36,1);
   overscroll-behavior: contain;
+  /* Sheet schließt bündig mit der Viewport-Unterkante ab: ohne Safe-Area läge
+     das letzte Element („Ähnliche finden") im Home-Indicator-Bereich */
+  padding-bottom: env(safe-area-inset-bottom);
 }
 @media (min-width: 700px) { .modal-inner { border-radius: 20px; animation: popIn .2s cubic-bezier(.22,1,.36,1); } }
 @keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } }
@@ -879,7 +886,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 
 /* ───── Desktop-Anpassungen ───── */
 @media (min-width: 900px) {
-  body { padding-bottom: 30px; }
+  body { padding-bottom: calc(30px + var(--hon-overlay-h, 0px)); }
   .tabs {
     position: sticky; top: 56px; bottom: auto; justify-content: center; gap: 4px;
     border-top: none; border-bottom: 1px solid var(--border); padding: 4px 0;
