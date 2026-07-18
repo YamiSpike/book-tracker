@@ -1069,3 +1069,6 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 }
 .bulk-act:active { transform: scale(.96); }
 .bulk-act.danger { border-color: rgba(244,63,94,.4); color: #fb7185; }
+
+/* v11.3: Cover-Nachladen im Detail */
+.cover-load-btn { font-size: 11.5px; padding: 6px 11px; }

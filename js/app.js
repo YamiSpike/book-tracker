@@ -1122,8 +1122,24 @@
       img.src = url;
     });
   }
-  // Cover-Quelle für ein Buch finden: erst OL-ISBN, dann OL-Titelsuche
-  function findCover(b) {
+  // Titel für die Cover-Suche bereinigen — erkennt deutsche, englische, romaji UND japanische
+  // Titel sowie Sonderzeichen. Band-/Ausgabe-Angaben werden entfernt, damit der reine Serientitel
+  // gesucht wird (AniList/Google finden das Cover dann über alle Sprachvarianten & Synonyme).
+  function coverSearchTitle(b) {
+    var t = String(b.title || '');
+    // „… Band 5", „Vol. 3", „Nr. 12", „#7", „, Vol. 2" etc. am Ende entfernen
+    t = t.replace(/[\s:·,\-–—#]*\b(?:Band|Bd|Vol|Volume|Teil|Tome|Nr|No|Ausgabe|Issue|Chapter|Kapitel|巻|第)\b\.?\s*\d+.*$/i, '');
+    // „Naruto 5" / „ワンピース 3" → Serientitel; nur wenn davor echte Buchstaben stehen
+    t = t.replace(/[\s·\-–—#]+\d{1,4}\s*$/, '');
+    // Klammer-Zusätze wie „(Manga)" wegnehmen
+    t = t.replace(/[\(\[（【][^\)\]）】]*[\)\]）】]\s*$/, '');
+    t = t.replace(/\s+/g, ' ').trim();
+    return t || String(b.title || '').trim();
+  }
+  function hasJapanese(s) { return /[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(String(s || '')); }
+
+  // Cover über Buch-Quellen (Open Library ISBN + Titel, dann Google Books mehrsprachig)
+  function findBookCover(b) {
     var isbn = (b.isbn || '').replace(/[^0-9Xx]/g, '');
     var chain = Promise.resolve('');
     if (isbn.length >= 10) {
@@ -1132,16 +1148,55 @@
     }
     return chain.then(function (found) {
       if (found) return found;
-      // Fallback: Open-Library-Titelsuche (CORS-frei, kein Kontingent)
-      var q = (b.title + ' ' + ((b.authors || [])[0] || '')).trim();
+      var title = coverSearchTitle(b);
+      var q = (title + ' ' + ((b.authors || [])[0] || '')).trim();
       if (!q) return '';
-      return fetch('https://openlibrary.org/search.json?q=' + encodeURIComponent(q) + '&limit=1&fields=cover_i')
+      // Open Library (CORS-frei, kein Kontingent)
+      return fetch('https://openlibrary.org/search.json?q=' + encodeURIComponent(q) + '&limit=3&fields=cover_i')
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
-          var ci = j && j.docs && j.docs[0] && j.docs[0].cover_i;
-          return ci ? ('https://covers.openlibrary.org/b/id/' + ci + '-M.jpg') : '';
+          var doc = (j && j.docs || []).find(function (d) { return d.cover_i; });
+          if (doc) return 'https://covers.openlibrary.org/b/id/' + doc.cover_i + '-M.jpg';
+          // Google Books als letzter Versuch (erkennt auch japanische/englische Titel)
+          var gq = isbn.length >= 10 ? ('isbn:' + isbn) : q;
+          return fetch(GB + '?q=' + encodeURIComponent(gq) + '&maxResults=3&printType=books')
+            .then(function (r2) { return r2.ok ? r2.json() : null; })
+            .then(function (j2) {
+              var items = (j2 && j2.items) || [];
+              for (var i = 0; i < items.length; i++) {
+                var il = items[i].volumeInfo && items[i].volumeInfo.imageLinks;
+                var c = il && (il.thumbnail || il.smallThumbnail);
+                if (c) return c.replace(/^http:/, 'https:');
+              }
+              return '';
+            }).catch(function () { return ''; });
         }).catch(function () { return ''; });
     });
+  }
+
+  // Cover für einen MANGA: AniList (findet romaji/englisch/japanisch/Synonyme) → Jikan/MAL → Buch-Quellen
+  function findMangaCover(b) {
+    var q = coverSearchTitle(b);
+    if (!q) return findBookCover(b);
+    return alSearch(q, 4).then(function (items) {
+      var hit = (items || []).find(function (x) { return x.cover; });
+      if (hit) return hit.cover;
+      return jikanSearch(q, 4).then(function (items2) {
+        var h2 = (items2 || []).find(function (x) { return x.cover; });
+        return h2 ? h2.cover : findBookCover(b);
+      }).catch(function () { return findBookCover(b); });
+    }).catch(function () {
+      return jikanSearch(q, 4).then(function (items3) {
+        var h3 = (items3 || []).find(function (x) { return x.cover; });
+        return h3 ? h3.cover : findBookCover(b);
+      }).catch(function () { return findBookCover(b); });
+    });
+  }
+
+  // Cover-Quelle je nach Typ wählen. Mangas (oder japanische Titel) zuerst über AniList/Jikan.
+  function findCover(b) {
+    if (b.kind === 'manga' || hasJapanese(b.title)) return findMangaCover(b);
+    return findBookCover(b);
   }
   // Cover gesammelt anwenden (EIN saveBooks pro Block — nicht pro Buch, sonst O(n²) beim Speichern)
   function applyCovers(coverMap) {
@@ -1650,6 +1705,7 @@
       + '<div class="titles"><h2>' + esc(b.title) + '</h2>'
       + '<div class="author">' + esc(b.authors.join(', ') || 'Unbekannt') + '</div>'
       + '<div class="facts">' + facts.map(function (f) { return '<span class="fact-pill">' + esc(f) + '</span>'; }).join('') + '</div>'
+      + (own ? '<button class="btn-ghost cover-load-btn" id="coverLoadBtn" style="margin-top:8px">' + (b.cover ? '🖼️ Anderes Cover suchen' : '🖼️ Cover online laden') + '</button>' : '')
       + '</div></div>'
       + '<div class="detail-actions"><div class="status-btns">' + statusRow
       + (own ? '<button class="status-btn danger" data-remove="1">🗑️ Entfernen</button>' : '')
@@ -1739,6 +1795,24 @@
     });
     var na = inner.querySelector('#noteArea');
     if (na) na.addEventListener('change', function () { patchBook(b.id, { note: na.value }); toast('Notiz gespeichert ✓'); });
+
+    // v11.3: Cover für DIESEN Titel online nachladen (falls der Batch-Nachlader es nicht schaffte)
+    var clBtn = inner.querySelector('#coverLoadBtn');
+    if (clBtn) clBtn.addEventListener('click', function () {
+      clBtn.disabled = true; clBtn.textContent = '🔎 Suche Cover…';
+      findCover(b).then(function (url) {
+        if (url) {
+          b.cover = url;
+          patchBook(b.id, { cover: url });
+          toast('🖼️ Cover gefunden ✓');
+          openDetail(b);
+        } else {
+          clBtn.disabled = false; clBtn.textContent = '😕 Kein Cover gefunden — erneut?';
+        }
+      }).catch(function () {
+        clBtn.disabled = false; clBtn.textContent = '📡 Fehlgeschlagen — erneut?';
+      });
+    });
 
     // v6: „Ähnliche finden" — quellenbasiert per Autor·in bzw. Genre
     var simBtn = inner.querySelector('#similarBtn');
