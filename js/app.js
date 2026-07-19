@@ -1126,15 +1126,26 @@
   // Titel sowie Sonderzeichen. Band-/Ausgabe-Angaben werden entfernt, damit der reine Serientitel
   // gesucht wird (AniList/Google finden das Cover dann über alle Sprachvarianten & Synonyme).
   function coverSearchTitle(b) {
-    var t = String(b.title || '');
-    // „… Band 5", „Vol. 3", „Nr. 12", „#7", „, Vol. 2" etc. am Ende entfernen
-    t = t.replace(/[\s:·,\-–—#]*\b(?:Band|Bd|Vol|Volume|Teil|Tome|Nr|No|Ausgabe|Issue|Chapter|Kapitel|巻|第)\b\.?\s*\d+.*$/i, '');
-    // „Naruto 5" / „ワンピース 3" → Serientitel; nur wenn davor echte Buchstaben stehen
-    t = t.replace(/[\s·\-–—#]+\d{1,4}\s*$/, '');
-    // Klammer-Zusätze wie „(Manga)" wegnehmen
-    t = t.replace(/[\(\[（【][^\)\]）】]*[\)\]）】]\s*$/, '');
-    t = t.replace(/\s+/g, ' ').trim();
-    return t || String(b.title || '').trim();
+    var orig = String(b.title || '');
+    var t = orig;
+    // Deko-/Sonderzeichen entfernen, die AniList-Suchen stören (Sterne, Herzen, Kreuze, Tilde …)
+    t = t.replace(/[★☆♥♡❤†‡※◆◇▲△●○„“”«»»…~≪≫✦✧♪]/g, ' ');
+    // Klammer-Zusätze wie „(Manga)", „[Neuausgabe]", „（完全版）" wegnehmen
+    t = t.replace(/[\(\[（【][^\)\]）】]*[\)\]）】]/g, ' ');
+    // Ausgaben-/Editions-Zusätze entfernen (deutsch/englisch/japanisch)
+    t = t.replace(/\b(?:Massiv|Deluxe|Perfect|Complete|Ultimate|Master|Maximum|Big|Collectors?|Omnibus|Neuausgabe|Gesamtausgabe|Sammelband|Hardcover|Softcover|Digital|完全版|新装版)\b\s*(?:Edition|Ausgabe)?/gi, ' ');
+    // evtl. übrig gebliebenes eigenständiges „Edition"/„Ausgabe"
+    t = t.replace(/\b(?:Edition|Ausgabe)\b/gi, ' ');
+    // „… Band 5", „Vol. 3", „Nr. 12", „#7", „, Vol. 2", „巻", „第X巻" am Ende entfernen
+    t = t.replace(/[\s:·,\-–—#]*\b(?:Band|Bd|Vol|Volume|Teil|Tome|Nr|No|Ausgabe|Issue|Chapter|Kapitel)\b\.?\s*\d+.*$/i, '');
+    t = t.replace(/\s*第?\s*\d+\s*巻.*$/, '');
+    // „Naruto 5" / „ワンピース 3" → Serientitel; nur die reine End-Nummer weg
+    t = t.replace(/[\s·\-–—#:]+\d{1,4}\s*$/, '');
+    // Mehrfache Trenner/Leerzeichen glätten
+    t = t.replace(/[\-–—_]+/g, ' ').replace(/\s+/g, ' ').trim();
+    // Zu kurz geworden? Original ohne reine Endnummer nehmen
+    if (t.length < 2) t = orig.replace(/[\s#]+\d{1,4}\s*$/, '').trim();
+    return t || orig.trim();
   }
   function hasJapanese(s) { return /[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(String(s || '')); }
 
@@ -1198,6 +1209,79 @@
     if (b.kind === 'manga' || hasJapanese(b.title)) return findMangaCover(b);
     return findBookCover(b);
   }
+
+  // ───── v13.3: Rate-limitierte Cover-Suche pro SERIE (behebt die 429-Sturm-Ursache) ─────
+  // AniList erlaubt ~90 Anfragen/Minute. Bei 800 Bänden parallel → 429-Sturm → nur ~25 % Treffer.
+  // Da AniList/MAL pro SERIE ein Cover haben, fragen wir nur EINMAL pro Serie — gedrosselt + mit Retry.
+  var _snLast = 0, _snQueue = Promise.resolve();
+  function seriesCoverCache() { try { return JSON.parse(localStorage.getItem('bk_series_covers') || '{}') || {}; } catch (e) { return {}; } }
+  function saveSeriesCoverCache(c) { try { localStorage.setItem('bk_series_covers', JSON.stringify(c)); } catch (e) {} }
+
+  // Ein gedrosselter AniList-Aufruf (750 ms Mindestabstand) mit 429-Retry; gibt Cover-URL oder '' zurück.
+  function alCoverThrottled(title, tries) {
+    tries = tries || 0;
+    _snQueue = _snQueue.then(function () {
+      var wait = Math.max(0, 750 - (nowMs() - _snLast));
+      return new Promise(function (res) { setTimeout(res, wait); });
+    }).then(function () {
+      _snLast = nowMs();
+      var gql = 'query($s:String){Page(perPage:5){media(search:$s,type:MANGA,sort:SEARCH_MATCH){coverImage{large extraLarge}}}}';
+      return fetch('https://graphql.anilist.co', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ query: gql, variables: { s: title } })
+      }).then(function (r) {
+        if (r.status === 429) return { retry: true };
+        if (!r.ok) return { cover: '' };
+        return r.json().then(function (j) {
+          var media = (((j.data || {}).Page || {}).media || []);
+          for (var i = 0; i < media.length; i++) {
+            var ci = media[i].coverImage;
+            var c = ci && (ci.extraLarge || ci.large);
+            if (c) return { cover: c };
+          }
+          return { cover: '' };
+        });
+      }).catch(function () { return { cover: '' }; });
+    });
+    return _snQueue.then(function (r) {
+      if (r && r.retry && tries < 5) {
+        return new Promise(function (res) { setTimeout(res, 1500 * (tries + 1)); }).then(function () { return alCoverThrottled(title, tries + 1); });
+      }
+      return (r && r.cover) || '';
+    });
+  }
+  function nowMs() { try { return Date.now(); } catch (e) { return 0; } }
+
+  // Jikan-Fallback (auch gedrosselt über dieselbe Queue)
+  function jikanCoverThrottled(title, tries) {
+    tries = tries || 0;
+    _snQueue = _snQueue.then(function () {
+      var wait = Math.max(0, 900 - (nowMs() - _snLast));
+      return new Promise(function (res) { setTimeout(res, wait); });
+    }).then(function () {
+      _snLast = nowMs();
+      return fetch('https://api.jikan.moe/v4/manga?q=' + encodeURIComponent(title) + '&limit=5&sfw=true')
+        .then(function (r) {
+          if (r.status === 429) return { retry: true };
+          if (!r.ok) return { cover: '' };
+          return r.json().then(function (j) {
+            var d = (j.data || []);
+            for (var i = 0; i < d.length; i++) {
+              var im = d[i].images && d[i].images.jpg;
+              var c = im && (im.large_image_url || im.image_url);
+              if (c) return { cover: c };
+            }
+            return { cover: '' };
+          });
+        }).catch(function () { return { cover: '' }; });
+    });
+    return _snQueue.then(function (r) {
+      if (r && r.retry && tries < 4) {
+        return new Promise(function (res) { setTimeout(res, 2000 * (tries + 1)); }).then(function () { return jikanCoverThrottled(title, tries + 1); });
+      }
+      return (r && r.cover) || '';
+    });
+  }
   // Cover gesammelt anwenden (EIN saveBooks pro Block — nicht pro Buch, sonst O(n²) beim Speichern)
   function applyCovers(coverMap) {
     var all = loadBooks(), changed = false, now = Date.now();
@@ -1209,52 +1293,92 @@
     }
     if (changed) saveBooks(all);
   }
+  // Cover in coverMap auf alle passenden Bücher (per id) anwenden — EIN saveBooks am Ende.
+  function applyCoverMapAll(coverMap) {
+    var all = loadBooks(), changed = false, now = Date.now();
+    for (var i = 0; i < all.length; i++) {
+      var url = coverMap[all[i].id];
+      if (url && !all[i].cover) { all[i] = Object.assign({}, all[i], { cover: url, updatedAt: now }); changed = true; }
+    }
+    if (changed) saveBooks(all);
+  }
+
+  // v13.3: Cover-Nachlader gruppiert nach SERIE → nur EINE Suche pro Serie (statt pro Band),
+  // gedrosselt + mit 429-Retry + persistentem Serien-Cache. Behebt die niedrige Trefferquote bei großen Manga-Sammlungen.
   function reloadMissingCovers() {
     var missing = lib().filter(function (b) { return !b.cover && (b.isbn || b.title); });
     if (!missing.length) { toast('Alle Einträge haben schon ein Cover ✨'); return; }
-    var LIMIT = 800;
-    var todo = missing.slice(0, LIMIT);
     coverAbort = false;
+
+    // Nach Serien-Schlüssel gruppieren (normTitleKey entfernt Band/Vol/Nr → gleiche Serie = ein Schlüssel)
+    var groups = Object.create(null), order = [];
+    missing.forEach(function (b) {
+      var isManga = b.kind === 'manga' || hasJapanese(b.title);
+      var stitle = coverSearchTitle(b);
+      // normTitleKey entfernt lateinische Füllwörter — bei CJK-Titeln gibt es aber LEER zurück
+      // (alle japanischen Titel würden sonst zum selben Key kollabieren!). Fallback: bereinigter Titel.
+      var base = normTitleKey(stitle);
+      if (!base) base = stitle.toLowerCase().replace(/\s+/g, ' ').trim();
+      var key = (isManga ? 'm:' : 'b:') + base;
+      if (!groups[key]) { groups[key] = { key: key, title: stitle, isManga: isManga, books: [], anyIsbn: '' }; order.push(key); }
+      groups[key].books.push(b);
+      if (!groups[key].anyIsbn && b.isbn) groups[key].anyIsbn = b.isbn;
+    });
+    var totalSeries = order.length, totalBooks = missing.length;
+    var cache = seriesCoverCache();
 
     var m = document.createElement('div');
     m.className = 'admin-modal';
     m.innerHTML = '<div class="admin-card"><div class="admin-head">🖼️ Cover werden geladen…</div>'
-      + '<p class="admin-sub" id="coverProg">0 / ' + todo.length.toLocaleString('de-DE') + ' geprüft · 0 gefunden</p>'
+      + '<p class="admin-sub" id="coverProg">0 / ' + totalSeries.toLocaleString('de-DE') + ' Reihen · 0 Cover</p>'
+      + '<p class="muted" id="coverSub" style="font-size:11px;margin:-6px 0 8px">' + totalBooks.toLocaleString('de-DE') + ' Titel in ' + totalSeries.toLocaleString('de-DE') + ' Reihen — gedrosselt gegen API-Limits</p>'
       + '<div class="cover-bar"><i id="coverBarFill"></i></div>'
       + '<div class="admin-btns"><button class="btn-ghost" id="coverStop">Stopp &amp; speichern</button></div></div>';
     document.body.appendChild(m);
     m.querySelector('#coverStop').addEventListener('click', function () { coverAbort = true; });
 
-    var idx = 0, done = 0, found = 0, pending = {}, CONC = 5;
-    function flush() { applyCovers(pending); pending = {}; }
+    var gi = 0, coversFound = 0, pending = {};
+    function flush() { applyCoverMapAll(pending); pending = {}; }
     function upd() {
       var p = m.querySelector('#coverProg'), bar = m.querySelector('#coverBarFill');
-      if (p) p.textContent = done.toLocaleString('de-DE') + ' / ' + todo.length.toLocaleString('de-DE') + ' geprüft · ' + found + ' gefunden';
-      if (bar) bar.style.width = Math.round(done / todo.length * 100) + '%';
+      if (p) p.textContent = gi.toLocaleString('de-DE') + ' / ' + totalSeries.toLocaleString('de-DE') + ' Reihen · ' + coversFound.toLocaleString('de-DE') + ' Cover';
+      if (bar) bar.style.width = Math.round(gi / totalSeries * 100) + '%';
     }
     function finish() {
-      flush();
+      flush(); saveSeriesCoverCache(cache);
       if (m.parentNode) m.remove();
       recoBuiltFor = '';
       refreshAll();
-      toast('🖼️ ' + found + ' Cover ergänzt' + (coverAbort ? ' (abgebrochen)' : '') + ' ✓');
+      toast('🖼️ ' + coversFound.toLocaleString('de-DE') + ' Cover ergänzt' + (coverAbort ? ' (abgebrochen)' : '') + ' ✓');
     }
-    function worker() {
-      if (coverAbort || idx >= todo.length) {
-        if (idx >= todo.length || coverAbort) { active--; if (active <= 0) finish(); }
-        return;
-      }
-      var b = todo[idx++];
-      findCover(b).then(function (url) {
-        if (url) { pending[b.id] = url; found++; }
-        done++;
-        if (found && found % 40 === 0) flush();
-        if (done % 10 === 0) upd();
-        worker();
+    // Cover für eine Serie beschaffen: Cache → AniList → Jikan → (Buch-Quellen bei ISBN)
+    function coverForGroup(g) {
+      if (cache[g.key]) return Promise.resolve(cache[g.key]);
+      var chain = g.isManga
+        ? alCoverThrottled(g.title).then(function (c) { return c || jikanCoverThrottled(g.title); })
+        : Promise.resolve('');
+      return chain.then(function (c) {
+        if (c) return c;
+        // Fallback: Buch-Quellen (OL/Google) — nutzt ISBN falls vorhanden, sonst Titel
+        return findBookCover({ title: g.title, isbn: g.anyIsbn, authors: (g.books[0] && g.books[0].authors) || [] });
       });
     }
-    var active = CONC;
-    for (var w = 0; w < CONC; w++) worker();
+    function step() {
+      if (coverAbort || gi >= order.length) { finish(); return; }
+      var g = groups[order[gi]];
+      coverForGroup(g).then(function (url) {
+        if (url) {
+          cache[g.key] = url;
+          g.books.forEach(function (b) { pending[b.id] = url; coversFound++; });
+        }
+        gi++;
+        upd();
+        if (gi % 10 === 0) { flush(); saveSeriesCoverCache(cache); }
+        step();
+      });
+    }
+    upd();
+    step();
   }
 
   // DB komplett leeren (mit Sicherheitsabfrage)

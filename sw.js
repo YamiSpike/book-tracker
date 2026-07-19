@@ -6,7 +6,7 @@
    - Eine neue Version kommt AUSSCHLIESSLICH über den Update-Banner: dessen
      Klick lädt mit ?_v=… → Netz erzwungen → Shell erneuert.
    - Cover-Cache (buecher-covers-v1) bleibt eigenständig und überlebt Updates. */
-const CACHE = 'buecher-v13-2';
+const CACHE = 'buecher-v13-3';
 // Cover-Cache ist EIGENSTÄNDIG versioniert und überlebt App-Updates —
 // sonst wären nach jedem Versions-Bump alle Offline-Cover weg
 const COVER_CACHE = 'buecher-covers-v1';
@@ -15,7 +15,7 @@ const COVER_CACHE = 'buecher-covers-v1';
 // sonst würde jeder Deploy still updaten.
 const SHELL = 'buecher-shell';
 // MUSS mit den ?v=-Bustern in index.html übereinstimmen (Versions-Trias!)
-const BUST = '?v=13.2';
+const BUST = '?v=13.3';
 
 // Kosmetische Statik (unkritisch fürs Versions-Pinning) — versionierter Cache
 const PRECACHE = [
