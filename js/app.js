@@ -309,6 +309,66 @@
     });
   }
 
+  /* ── v14-G: Verwandte Werke via AniList (keyless) ──
+     Titel-Parsing findet nur „Band N" derselben Reihe. Spin-offs, Sequels mit
+     anderem Namen und Side Stories übersieht es komplett — genau die gehen einem
+     Sammler durch die Lappen. AniList kennt diese Beziehungen (relations) und
+     hat community-kuratierte Empfehlungen (recommendations). */
+  var REL_LBL = {
+    SEQUEL: '➡️ Fortsetzung', PREQUEL: '⬅️ Vorgeschichte', SIDE_STORY: '📎 Nebengeschichte',
+    SPIN_OFF: '🌱 Spin-off', PARENT: '📖 Hauptreihe', ALTERNATIVE: '🔀 Alternative Fassung',
+    ADAPTATION: '🎬 Adaption', SUMMARY: '📝 Zusammenfassung', CHARACTER: '👤 Gleiche Figuren',
+    OTHER: '🔗 Verwandt'
+  };
+  // Nur Manga-artige Beziehungen — Anime-Adaptionen gehören nicht in einen Bücher-Tracker
+  function alRelated(title) {
+    var gql = 'query($s:String){Media(search:$s,type:MANGA){id title{english romaji}'
+      + ' relations{edges{relationType node{id type title{english romaji} coverImage{large} startDate{year} volumes chapters genres description(asHtml:false) averageScore}}}'
+      + ' recommendations(perPage:8,sort:RATING_DESC){nodes{mediaRecommendation{id type title{english romaji} coverImage{large} startDate{year} volumes chapters genres description(asHtml:false) averageScore}}}}}';
+    return fetch('https://graphql.anilist.co', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ query: gql, variables: { s: title } })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('AniList nicht erreichbar (' + r.status + ')');
+      return r.json();
+    }).then(function (j) {
+      var M = (j.data || {}).Media;
+      if (!M) return { relations: [], recos: [] };
+      function toBook(n) {
+        if (!n || n.type !== 'MANGA') return null;
+        var t = (n.title && (n.title.english || n.title.romaji)) || '';
+        if (!t) return null;
+        return normManga({
+          id: 'al-' + n.id, title: t, authors: [],
+          cover: (n.coverImage && n.coverImage.large) || '',
+          year: n.startDate && n.startDate.year ? String(n.startDate.year) : '',
+          volumes: n.volumes, chapters: n.chapters, genres: n.genres,
+          desc: n.description || '',
+          score: n.averageScore ? Math.round(n.averageScore / 20 * 10) / 10 : 0
+        });
+      }
+      // Große Reihen liefern 30+ Relationen — davon ist vieles Rauschen (Cover-Varianten,
+      // Cross-Over-Gastauftritte). Nach Relevanz sortieren, entdoppeln, auf 12 kappen.
+      var REL_RANK = { SEQUEL: 1, PREQUEL: 2, PARENT: 3, SIDE_STORY: 4, SPIN_OFF: 5, ALTERNATIVE: 6, SUMMARY: 7 };
+      var seenRel = Object.create(null);
+      var rel = (((M.relations || {}).edges) || [])
+        .filter(function (e) { return REL_RANK[e.relationType]; })   // CHARACTER/ADAPTATION raus
+        .sort(function (a, b) { return REL_RANK[a.relationType] - REL_RANK[b.relationType]; })
+        .map(function (e) {
+          var b = toBook(e.node);
+          if (!b) return null;
+          var k = normTitleKey(b.title);
+          if (seenRel[k]) return null;                                // Doppelte Einträge (gleicher Titel) raus
+          seenRel[k] = 1;
+          return { book: b, label: REL_LBL[e.relationType] || REL_LBL.OTHER };
+        }).filter(Boolean).slice(0, 12);
+      var rec = (((M.recommendations || {}).nodes) || []).map(function (n) {
+        return toBook(n && n.mediaRecommendation);
+      }).filter(Boolean);
+      return { relations: rel, recos: rec };
+    });
+  }
+
   function jikanSearch(q, maxResults) {
     return fetch('https://api.jikan.moe/v4/manga?q=' + encodeURIComponent(q) + '&limit=' + Math.min(maxResults || 15, 20) + '&sfw=true')
       .then(function (r) {
@@ -520,6 +580,9 @@
   function statusDates(existing, status, now) {
     var p = {};
     if (status === 'reading' && !(existing && existing.startedAt)) p.startedAt = now;
+    // v14: gelesen/abgebrochen → raus aus der „Als Nächstes"-Warteschlange,
+    // sonst müsste man jeden fertigen Titel von Hand austragen
+    if ((status === 'read' || status === 'dnf') && existing && existing.tbrPos > 0) p.tbrPos = 0;
     if (status === 'read') {
       if (!(existing && existing.startedAt)) p.startedAt = now;
       if (!(existing && existing.finishedAt)) p.finishedAt = now;
@@ -668,6 +731,8 @@
     $('homeReadingSection').hidden = reading.length === 0;
     $('homeReading').innerHTML = reading.slice(0, 6).map(function (b) { return cardHtml(b, { showStatus: true }); }).join('');
 
+    renderTbr();
+
     var recent = books.slice().sort(function (a, b) { return (b.addedAt || 0) - (a.addedAt || 0); }).slice(0, 6);
     $('homeRecentSection').hidden = recent.length === 0;
     $('homeRecent').innerHTML = recent.map(function (b) { return cardHtml(b, { showStatus: true }); }).join('');
@@ -697,9 +762,171 @@
     }
   }
 
+  /* ══ v14-C: „Als Nächstes" — geordnete Lese-Warteschlange ══
+     wishPrio war nur ein Ja/Nein-Bit. Bei 800+ Bänden mit Serienlücken ist
+     „welcher Band ist als Nächstes dran" die häufigste Frage — die beantwortet
+     eine echte Reihenfolge (tbrPos) plus Auto-Vorschlag aus laufenden Reihen.
+     Hoch/Runter-Buttons statt Drag&Drop: auf iOS-Safari ist DnD unzuverlässig. */
+  function tbrList() {
+    return lib().filter(function (b) { return b.tbrPos > 0; })
+      .sort(function (a, b) { return a.tbrPos - b.tbrPos; });
+  }
+  function tbrAdd(id) {
+    var cur = tbrList();
+    if (cur.some(function (b) { return b.id === id; })) { toast('Steht schon in der Liste.'); return; }
+    var max = cur.length ? cur[cur.length - 1].tbrPos : 0;
+    patchBook(id, { tbrPos: max + 1 });
+  }
+  // Positionen nach jeder Änderung wieder auf 1..n normalisieren (EIN saveBooks)
+  function tbrReorder(id, dir) {
+    var cur = tbrList();
+    var i = cur.findIndex(function (b) { return b.id === id; });
+    var j = i + dir;
+    if (i < 0 || j < 0 || j >= cur.length) return;
+    var tmp = cur[i]; cur[i] = cur[j]; cur[j] = tmp;
+    var pos = Object.create(null);
+    cur.forEach(function (b, n) { pos[b.id] = n + 1; });
+    var all = loadBooks(), now = Date.now();
+    for (var k = 0; k < all.length; k++) if (pos[all[k].id]) all[k] = Object.assign({}, all[k], { tbrPos: pos[all[k].id], updatedAt: now });
+    saveBooks(all);
+    renderTbr();
+  }
+  // Vorschläge: nächster Band jeder Reihe, die gerade gelesen wird, dann ⭐-Wunschtitel
+  function tbrSuggest() {
+    var books = lib();
+    var inList = Object.create(null);
+    tbrList().forEach(function (b) { inList[b.id] = 1; });
+    var picks = [];
+    // 1) Nächster Band einer Reihe, von der du gerade einen Band liest oder gelesen hast
+    var readingSeries = Object.create(null);
+    books.forEach(function (b) {
+      if (b.status !== 'reading' && b.status !== 'read') return;
+      var s = seriesOf(b); if (!s) return;
+      var k = normTitleKey(s.name);
+      if (!readingSeries[k] || s.num > readingSeries[k]) readingSeries[k] = s.num;
+    });
+    books.forEach(function (b) {
+      if (inList[b.id] || b.status === 'read' || b.status === 'reading' || b.status === 'dnf') return;
+      var s = seriesOf(b); if (!s) return;
+      var k = normTitleKey(s.name);
+      if (readingSeries[k] && s.num === readingSeries[k] + 1) picks.push({ b: b, why: '📚 nächster Band' });
+    });
+    // 2) Wunschtitel mit ⭐-Priorität
+    books.forEach(function (b) {
+      if (inList[b.id] || picks.some(function (p) { return p.b.id === b.id; })) return;
+      if (b.status === 'want' && b.wishPrio) picks.push({ b: b, why: '⭐ Priorität' });
+    });
+    // 3) Karteileichen: liegt am längsten auf „Will lesen"
+    if (picks.length < 5) {
+      books.filter(function (b) {
+        return b.status === 'want' && !inList[b.id] && !picks.some(function (p) { return p.b.id === b.id; });
+      }).sort(function (a, b) { return (a.addedAt || 0) - (b.addedAt || 0); })
+        .slice(0, 5 - picks.length)
+        .forEach(function (b) { picks.push({ b: b, why: '🕰️ liegt am längsten' }); });
+    }
+    return picks.slice(0, 8);
+  }
+  function renderTbr() {
+    var sec = $('homeTbrSection'), box = $('homeTbr');
+    if (!sec || !box) return;
+    var list = tbrList();
+    var t = tsundoku();
+    // Sektion nur zeigen, wenn es eine Liste gibt ODER es überhaupt Wunschtitel gäbe
+    if (!list.length && !t.count) { sec.hidden = true; return; }
+    sec.hidden = false;
+
+    var sub = $('tbrSub');
+    if (sub) {
+      sub.innerHTML = list.length
+        ? list.length + ' in der Warteschlange · dein Stapel: <b>' + t.count.toLocaleString('de-DE') + ' Titel</b>'
+          + (t.pages ? ' · ' + t.pages.toLocaleString('de-DE') + ' Seiten ≈ <b>' + Math.round(t.hours) + ' Lesestunden</b>' : '')
+          + (t.spent ? ' · ' + money(t.spent) + ' investiert' : '')
+        : 'Noch leer — tippe auf ✨ Vorschlagen, dann füllt sich die Liste aus deinen Reihen.';
+    }
+    if (!list.length) {
+      box.innerHTML = '<p class="muted" style="font-size:13px">'
+        + (t.oldest ? '🕰️ Am längsten unangetastet: <b>' + esc(t.oldest.title.slice(0, 50)) + '</b>'
+            + (t.oldest.addedAt ? ' (seit ' + fmtDate(t.oldest.addedAt) + ')' : '') : '')
+        + '</p>';
+      return;
+    }
+    box.innerHTML = list.map(function (b, i) {
+      var s = seriesOf(b);
+      return '<div class="tbr-item" data-tbr="' + esc(b.id) + '">'
+        + '<span class="tbr-pos">' + (i + 1) + '</span>'
+        + (b.cover ? '<img class="tbr-cover" loading="lazy" width="34" height="50" src="' + esc(b.cover) + '" alt="" />' : '<span class="tbr-cover fallback">📕</span>')
+        + '<span class="tbr-meta"><b>' + esc(b.title.slice(0, 60)) + '</b>'
+        + '<span class="muted">' + esc((b.authors || [])[0] || '') + (b.pages ? ' · ' + b.pages + ' S.' : '') + (s ? ' · Band ' + s.num : '') + '</span></span>'
+        + '<span class="tbr-btns">'
+        + '<button class="tbr-b" data-tbrup="' + esc(b.id) + '" aria-label="Nach oben"' + (i === 0 ? ' disabled' : '') + '>▲</button>'
+        + '<button class="tbr-b" data-tbrdown="' + esc(b.id) + '" aria-label="Nach unten"' + (i === list.length - 1 ? ' disabled' : '') + '>▼</button>'
+        + '<button class="tbr-b danger" data-tbrdel="' + esc(b.id) + '" aria-label="Aus der Liste">✕</button>'
+        + '</span></div>';
+    }).join('');
+
+    box.querySelectorAll('[data-tbrup]').forEach(function (el) {
+      el.addEventListener('click', function (e) { e.stopPropagation(); tbrReorder(el.dataset.tbrup, -1); });
+    });
+    box.querySelectorAll('[data-tbrdown]').forEach(function (el) {
+      el.addEventListener('click', function (e) { e.stopPropagation(); tbrReorder(el.dataset.tbrdown, 1); });
+    });
+    box.querySelectorAll('[data-tbrdel]').forEach(function (el) {
+      el.addEventListener('click', function (e) {
+        e.stopPropagation();
+        patchBook(el.dataset.tbrdel, { tbrPos: 0 });
+        toast('Aus der Liste genommen');
+        renderTbr();
+      });
+    });
+    // Klick auf die Zeile öffnet das Buch
+    box.querySelectorAll('.tbr-item').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var b = findInLib(el.dataset.tbr);
+        if (b) openDetail(b);
+      });
+    });
+  }
+  function openTbrSuggest() {
+    var picks = tbrSuggest();
+    if (!picks.length) {
+      toast('✨ Nichts zu ergänzen — markiere Wunschtitel mit ⭐ oder lies eine Reihe weiter.');
+      return;
+    }
+    var m = document.createElement('div');
+    m.className = 'admin-modal';
+    m.innerHTML = '<div class="admin-card"><div class="admin-head">✨ Als Nächstes vorschlagen</div>'
+      + '<p class="admin-sub">Antippen zum Auswählen — ausgewählte Titel kommen ans Ende deiner Liste.</p>'
+      + '<div class="tbr-suggest">' + picks.map(function (p) {
+          return '<label class="tbr-sug"><input type="checkbox" checked data-sug="' + esc(p.b.id) + '" />'
+            + '<span><b>' + esc(p.b.title.slice(0, 52)) + '</b><span class="muted"> ' + p.why + '</span></span></label>';
+        }).join('') + '</div>'
+      + '<div class="admin-btns"><button class="btn-primary" id="sugOk">Übernehmen</button>'
+      + '<button class="btn-ghost" id="sugCancel">Abbrechen</button></div></div>';
+    document.body.appendChild(m);
+    m.addEventListener('click', function (e) { if (e.target === m) m.remove(); });
+    m.querySelector('#sugCancel').addEventListener('click', function () { m.remove(); });
+    m.querySelector('#sugOk').addEventListener('click', function () {
+      var ids = [];
+      m.querySelectorAll('[data-sug]').forEach(function (cb) { if (cb.checked) ids.push(cb.dataset.sug); });
+      if (ids.length) {
+        // EIN saveBooks für alle — nicht n einzelne patchBook-Schreibvorgänge
+        var start = tbrList().length;
+        var pos = Object.create(null);
+        ids.forEach(function (id, i) { pos[id] = start + i + 1; });
+        var all = loadBooks(), now = Date.now();
+        for (var k = 0; k < all.length; k++) if (pos[all[k].id]) all[k] = Object.assign({}, all[k], { tbrPos: pos[all[k].id], updatedAt: now });
+        saveBooks(all);
+        toast('📋 ' + ids.length + ' Titel in die Liste übernommen ✓');
+        refreshAll();
+      }
+      m.remove();
+    });
+  }
+
   // ───── Suche ─────
   var lastSearch = [];
   var lastSimilar = [];    // v6: „Ähnliche finden"-Ergebnisse im Detail
+  var lastRelated = [];    // v14: AniList-Verwandtschaft (Spin-offs, Sequels, Empfehlungen)
   var searchMode = 'buch'; // 'buch' | 'manga' | 'magazin'
   var pendingIssn = '';    // v13: per ISSN-Scan vorbefüllte Zeitschrift (für „Manuell erfassen")
 
@@ -781,6 +1008,7 @@
     var st = $('filterStatus').value, ge = $('filterGenre').value, tg = $('filterTag').value, sort = $('sortLib').value;
     var kd = $('filterKind') ? $('filterKind').value : '';
     var vl = $('filterPublisher') ? $('filterPublisher').value : '';
+    var lc = $('filterLoc') ? $('filterLoc').value : '';
 
     // Verlags-Filter-Optionen (v5)
     var pubs = {};
@@ -813,6 +1041,21 @@
     }).join('');
     tsel.style.display = Object.keys(tags).length ? '' : 'none';
 
+    // v14: Standort-Filter („Wo steht Band 42?") — nur zeigen wenn Standorte vergeben sind
+    var locs = {};
+    books.forEach(function (b) { if (b.loc) locs[b.loc] = (locs[b.loc] || 0) + 1; });
+    var lsel = $('filterLoc'), lcur = lsel ? lsel.value : '';
+    var lentCount = books.filter(function (b) { return b.lentTo; }).length;
+    if (lsel) {
+      lsel.innerHTML = '<option value="">Alle Standorte</option>'
+        + Object.keys(locs).sort().map(function (l) {
+            return '<option value="' + esc(l) + '"' + (l === lcur ? ' selected' : '') + '>📍 ' + esc(l) + ' (' + locs[l] + ')</option>';
+          }).join('')
+        + (lentCount ? '<option value="lent"' + (lcur === 'lent' ? ' selected' : '') + '>🤝 Verliehen (' + lentCount + ')</option>' : '')
+        + '<option value="none"' + (lcur === 'none' ? ' selected' : '') + '>❔ Ohne Standort</option>';
+      lsel.style.display = (Object.keys(locs).length || lentCount) ? '' : 'none';
+    }
+
     // v4: Live-Suche in der eigenen Sammlung (Titel, Autor·in, Notizen, Zitate, Tags)
     var q = ($('libSearch') ? $('libSearch').value : '').trim().toLowerCase();
     var out = books.filter(function (b) {
@@ -823,9 +1066,12 @@
       if (kd === 'magazin' && b.kind !== 'magazin') return false;
       if (kd === 'buch' && (b.kind === 'manga' || b.kind === 'magazin')) return false;
       if (vl && b.publisher !== vl) return false;
+      if (lc === 'lent' && !b.lentTo) return false;
+      if (lc === 'none' && b.loc) return false;
+      if (lc && lc !== 'lent' && lc !== 'none' && b.loc !== lc) return false;
       if (q) {
         var hay = (b.title + ' ' + (b.authors || []).join(' ') + ' ' + (b.note || '') + ' '
-          + (b.publisher || '') + ' '
+          + (b.publisher || '') + ' ' + (b.loc || '') + ' ' + (b.lentTo || '') + ' '
           + (b.tags || []).join(' ') + ' ' + (b.quotes || []).map(function (x) { return x.text; }).join(' ')).toLowerCase();
         if (hay.indexOf(q) < 0) return false;
       }
@@ -1538,7 +1784,13 @@
     // v4: Lesezeit (Timer-Sessions) + geschätzter Bibliotheks-Wert + Streak
     var mins = loadSessions().reduce(function (s, x) { return s + (x.minutes || 0); }, 0);
     var aStats = achStats();
-    var worth = books.length * 12; // Spielerei: Ø ~12 € pro Buch
+    // v14: Bibliotheks-Wert aus ECHTEN Preisen, wo erfasst — der Rest wird geschätzt.
+    // Der Schätzwert richtet sich nach dem eigenen Ø-Preis (Manga ≠ Hardcover), sonst 12 €.
+    var priced = books.filter(function (b) { return b.price > 0; });
+    var realSum = priced.reduce(function (s, b) { return s + b.price; }, 0);
+    var estUnit = priced.length >= 3 ? (realSum / priced.length) : 12;
+    var worth = Math.round(realSum + (books.length - priced.length) * estUnit);
+    var worthLbl = priced.length ? (priced.length === books.length ? 'Bibliotheks-Wert' : 'Wert (' + priced.length + ' echt)') : 'Bibliotheks-Wert';
     $('statsGrid').innerHTML =
       '<div class="stat-card"><b>' + read.length + '</b><span>Bücher gelesen</span></div>'
       + '<div class="stat-card"><b>' + pages.toLocaleString('de-DE') + '</b><span>Seiten gelesen</span></div>'
@@ -1547,13 +1799,14 @@
       + '<div class="stat-card"><b>' + avg + '</b><span>Ø Bewertung</span></div>'
       + (mins ? '<div class="stat-card"><b>' + (mins >= 120 ? Math.round(mins / 60) + ' h' : mins + ' min') + '</b><span>Lesezeit (Timer)</span></div>' : '')
       + (aStats.streak > 1 ? '<div class="stat-card"><b>' + aStats.streak + ' 🔥</b><span>Tage-Streak</span></div>' : '')
-      + '<div class="stat-card"><b>~' + worth.toLocaleString('de-DE') + ' €</b><span>Bibliotheks-Wert</span></div>';
+      + '<div class="stat-card"><b>' + (priced.length === books.length ? '' : '~') + worth.toLocaleString('de-DE') + ' €</b><span>' + worthLbl + '</span></div>';
 
     function barBlock(title, counts) {
       var keys = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; }).slice(0, 7);
       if (!keys.length) return '';
       var max = counts[keys[0]] || 1;
-      return '<h2 style="font-size:16px;margin-top:22px">' + title + '</h2><div class="bar-list">'
+      // Ohne Titel keine leere Überschrift rendern (v14: Balken unter einer eigenen h2)
+      return (title ? '<h2 style="font-size:16px;margin-top:22px">' + title + '</h2>' : '') + '<div class="bar-list">'
         + keys.map(function (k) {
           return '<div class="bar-row"><span class="lbl">' + esc(k) + '</span><span class="bar"><i style="width:' + Math.round(counts[k] / max * 100) + '%"></i></span><span class="val">' + counts[k] + '</span></div>';
         }).join('') + '</div>';
@@ -1639,12 +1892,130 @@
       return '<h2 style="font-size:16px;margin-top:22px">🏆 Erfolge</h2><div class="ach-grid">' + cells + '</div>';
     }
 
+    // ── v14-D: Lese-Tempo aus den Timer-Sessions ──
+    function paceHtml() {
+      var p = paceStats();
+      if (!p.sessions) return '';
+      var rows = '';
+      function line(lbl, o) {
+        var v = p.pphOf(o);
+        if (!v) return '';
+        return '<div class="bar-row"><span class="lbl">' + esc(lbl) + '</span>'
+          + '<span class="bar"><i style="width:' + Math.min(100, Math.round(v / 2)) + '%"></i></span>'
+          + '<span class="val">' + Math.round(v) + '</span></div>';
+      }
+      rows += line('📕 Print', p.byFormat.print) + line('📱 E-Book', p.byFormat.ebook) + line('🎧 Hörbuch', p.byFormat.audio);
+      rows += line('🎌 Manga', p.byKind.manga) + line('📚 Bücher', p.byKind.buch) + line('📰 Zeitschriften', p.byKind.magazin);
+
+      // Wann liest du? — Stunden-Histogramm aus den Session-Startzeiten
+      var maxH = Math.max.apply(null, p.hours) || 1;
+      var bestH = p.hours.indexOf(maxH);
+      var bars = p.hours.map(function (n, h) {
+        return '<i class="ph-bar' + (n === maxH && n > 0 ? ' peak' : '') + '" style="height:' + Math.max(3, Math.round(n / maxH * 100)) + '%"'
+          + ' title="' + h + ':00 Uhr · ' + n + ' Sitzungen"></i>';
+      }).join('');
+
+      return '<h2 style="font-size:16px;margin-top:22px">⏱️ Dein Lese-Tempo</h2>'
+        + '<div class="stats-grid">'
+        + (p.pagesPerHour ? '<div class="stat-card"><b>' + Math.round(p.pagesPerHour) + '</b><span>Seiten / Stunde</span></div>' : '')
+        + '<div class="stat-card"><b>' + p.sessions + '</b><span>Lese-Sitzungen</span></div>'
+        + '<div class="stat-card"><b>' + p.avgSession + ' min</b><span>Ø Sitzung</span></div>'
+        + '<div class="stat-card"><b>' + (p.longest >= 60 ? Math.round(p.longest / 60 * 10) / 10 + ' h' : p.longest + ' min') + '</b><span>Längste Sitzung</span></div>'
+        + '</div>'
+        + (rows ? '<p class="section-sub" style="margin-top:14px">Seiten pro Stunde je Format &amp; Typ</p><div class="bar-list">' + rows + '</div>' : '')
+        + '<p class="section-sub" style="margin-top:14px">🕐 Wann du liest' + (maxH > 0 ? ' — am liebsten gegen <b>' + bestH + ' Uhr</b>' : '') + '</p>'
+        + '<div class="pace-hours">' + bars + '</div>'
+        + '<div class="pace-hours-lbl"><span>0</span><span>6</span><span>12</span><span>18</span><span>23</span></div>';
+    }
+
+    // ── v14-B: Ausgaben (echte Preise statt Schätzung) ──
+    function moneyHtml() {
+      var withPrice = books.filter(function (b) { return b.price > 0; });
+      if (!withPrice.length) {
+        return '<h2 style="font-size:16px;margin-top:22px">💰 Ausgaben</h2>'
+          + '<p class="muted" style="font-size:13px">Noch keine Preise erfasst. Tipp: In der Sammlung auf <b>☑️ Auswählen</b> tippen, eine ganze Reihe markieren und mit <b>💰 Preis</b> den Bandpreis für alle auf einmal setzen.</p>';
+      }
+      var sum = withPrice.reduce(function (s, b) { return s + b.price; }, 0);
+      var avg = sum / withPrice.length;
+      // pro Jahr (nach Kaufdatum, sonst Hinzufüge-Datum)
+      var perYear = {}, perSeries = {};
+      withPrice.forEach(function (b) {
+        var t = b.boughtAt || b.addedAt;
+        if (t) perYear[new Date(t).getFullYear()] = (perYear[new Date(t).getFullYear()] || 0) + b.price;
+        var s = seriesOf(b);
+        var nm = s ? s.name : b.title;
+        perSeries[nm] = (perSeries[nm] || 0) + b.price;
+      });
+      var topSeries = Object.keys(perSeries).sort(function (a, b) { return perSeries[b] - perSeries[a]; })[0];
+      // Kosten pro Lesestunde — überraschend aussagekräftig
+      var totalMin = loadSessions().reduce(function (s, x) { return s + (x.minutes || 0); }, 0);
+      var perHour = totalMin >= 60 ? sum / (totalMin / 60) : 0;
+      var yearRows = {};
+      Object.keys(perYear).forEach(function (y) { yearRows[y] = Math.round(perYear[y]); });
+      return '<h2 style="font-size:16px;margin-top:22px">💰 Ausgaben</h2>'
+        + '<div class="stats-grid">'
+        + '<div class="stat-card"><b>' + money(sum) + '</b><span>Erfasst gesamt</span></div>'
+        + '<div class="stat-card"><b>' + money(avg) + '</b><span>Ø pro Band</span></div>'
+        + '<div class="stat-card"><b>' + withPrice.length + ' / ' + books.length + '</b><span>Titel mit Preis</span></div>'
+        + (perHour ? '<div class="stat-card"><b>' + money(perHour) + '</b><span>pro Lesestunde</span></div>' : '')
+        + (topSeries ? '<div class="stat-card"><b>' + money(perSeries[topSeries]) + '</b><span>Teuerste Reihe: ' + esc(topSeries.slice(0, 22)) + '</span></div>' : '')
+        + '</div>'
+        + barBlock('🗓️ Ausgaben pro Jahr (€)', yearRows);
+    }
+
+    // ── v14-A: Regal-Plan — wo steht was, was ist verliehen ──
+    function locHtml() {
+      var locs = {}, lent = [];
+      books.forEach(function (b) {
+        if (b.loc) locs[b.loc] = (locs[b.loc] || 0) + 1;
+        if (b.lentTo) lent.push(b);
+      });
+      if (!Object.keys(locs).length && !lent.length) {
+        return '<h2 style="font-size:16px;margin-top:22px">📍 Standorte</h2>'
+          + '<p class="muted" style="font-size:13px">Noch keine Standorte vergeben. Tipp: Reihe in der Sammlung auswählen → <b>📍 Standort</b> — danach findest du jeden Band über den Standort-Filter wieder.</p>';
+      }
+      var lentRows = lent.sort(function (a, b) { return (a.lentAt || 0) - (b.lentAt || 0); }).map(function (b) {
+        var days = b.lentAt ? Math.floor((Date.now() - b.lentAt) / 86400000) : 0;
+        return '<div class="series-row"><strong>🤝 ' + esc(b.title.slice(0, 44)) + '</strong>'
+          + '<span class="muted">bei ' + esc(b.lentTo) + (b.lentAt ? ' seit ' + fmtDate(b.lentAt) : '') + '</span>'
+          + (days > 90 ? '<span class="series-missing">seit ' + days + ' Tagen!</span>' : (days ? '<span class="series-full">' + days + ' Tage</span>' : ''))
+          + '</div>';
+      }).join('');
+      return '<h2 style="font-size:16px;margin-top:22px">📍 Standorte</h2>'
+        + (Object.keys(locs).length ? barBlock('', locs) : '')
+        + (lent.length ? '<p class="section-sub" style="margin-top:12px">🤝 Verliehen (' + lent.length + ')</p>' + lentRows : '');
+    }
+
+    // ── v14-E: DNF-Auswertung — halbfertiges Feature endlich ausgewertet ──
+    function dnfStatsHtml() {
+      var dnf = books.filter(function (b) { return b.status === 'dnf'; });
+      var finished = books.filter(function (b) { return b.status === 'read'; }).length;
+      if (!dnf.length) return '';
+      var quote = (finished + dnf.length) ? Math.round(dnf.length / (finished + dnf.length) * 100) : 0;
+      var pagesArr = dnf.filter(function (b) { return b.dnfPage > 0; }).map(function (b) { return b.dnfPage; });
+      var avgPage = pagesArr.length ? Math.round(pagesArr.reduce(function (a, c) { return a + c; }, 0) / pagesArr.length) : 0;
+      var reasons = {};
+      dnf.forEach(function (b) { (b.dnfTags || []).forEach(function (t) { reasons[t] = (reasons[t] || 0) + 1; }); });
+      return '<h2 style="font-size:16px;margin-top:22px">🚫 Abgebrochene Bücher</h2>'
+        + '<div class="stats-grid">'
+        + '<div class="stat-card"><b>' + dnf.length + '</b><span>Abgebrochen</span></div>'
+        + '<div class="stat-card"><b>' + quote + '%</b><span>Abbruch-Quote</span></div>'
+        + (avgPage ? '<div class="stat-card"><b>S. ' + avgPage + '</b><span>Ø Abbruch-Seite</span></div>' : '')
+        + '</div>'
+        + (Object.keys(reasons).length ? barBlock('Häufigste Gründe', reasons)
+            : '<p class="muted" style="font-size:13px;margin-top:8px">Tipp: Grund im Detail eines abgebrochenen Buchs antippen — dann siehst du hier dein Muster.</p>');
+    }
+
     $('statsBars').innerHTML = books.length
-      ? '<div style="margin-top:14px"><button class="btn-primary" id="yearReviewBtn">📚 Dein Lesejahr ' + new Date().getFullYear() + '</button></div>'
-        + heatmapHtml() + achHtml() + seriesHtml() + barBlock('📖 Gelesen pro Monat', mon) + barBlock('📚 Top-Genres', gen) + barBlock('✍️ Top-Autor·innen', aut) + barBlock('🏢 Top-Verlage', pub) + barBlock('🗓️ Hinzugefügt pro Jahr', yrs)
+      ? '<div style="margin-top:14px"><button class="btn-primary" id="yearReviewBtn">📚 Dein Lesejahr ' + new Date().getFullYear() + '</button>'
+          + '<button class="btn-ghost" id="yearDuelBtn" style="margin-left:8px">📈 Jahre vergleichen</button></div>'
+        + heatmapHtml() + paceHtml() + moneyHtml() + locHtml() + dnfStatsHtml()
+        + achHtml() + seriesHtml() + barBlock('📖 Gelesen pro Monat', mon) + barBlock('📚 Top-Genres', gen) + barBlock('✍️ Top-Autor·innen', aut) + barBlock('🏢 Top-Verlage', pub) + barBlock('🗓️ Hinzugefügt pro Jahr', yrs)
       : '<div class="empty"><div class="big">📊</div><p>Noch keine Daten — füge zuerst Bücher hinzu.</p></div>';
     var yb = document.getElementById('yearReviewBtn');
     if (yb) yb.addEventListener('click', openYearReview);
+    var ydb = document.getElementById('yearDuelBtn');
+    if (ydb) ydb.addEventListener('click', openYearDuel);
   }
 
   // v6: Fertig-Prognose für „Lese gerade" — aus Timer-Tempo oder Seiten/Tag seit Start
@@ -1764,6 +2135,148 @@
     toast('Zitat-Bild gespeichert 🖼️');
   }
 
+  /* ══════════════════════════════════════════════════════════════
+     v14: Sammler-Funktionen — Besitz, Verleih, Ausgaben, DNF, Tempo
+     Alle neuen Felder hängen am Buch-Objekt → landen automatisch in
+     bk_books und damit im Delta-Sync (collectData nimmt alle bk_-Keys).
+     ══════════════════════════════════════════════════════════════ */
+
+  // Abbruch-Gründe als feste Kategorien (statt nur Freitext) → auswertbar
+  var DNF_TAGS = ['Tempo zäh', 'Schreibstil', 'Thema', 'Übersetzung', 'Zeichnung', 'Interesse verloren', 'Zu lang', 'Sonstiges'];
+
+  function money(n) {
+    return (Math.round(n * 100) / 100).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  }
+  // Preis-Eingabe tolerant lesen: „12,90", „12.90", „12,90 €", „  9 " → Zahl (0 wenn ungültig)
+  function parsePrice(s) {
+    var t = String(s == null ? '' : s).replace(/[^0-9.,]/g, '').trim();
+    if (!t) return 0;
+    // Letztes Komma/Punkt ist das Dezimaltrennzeichen (1.234,50 wie auch 1,234.50)
+    var lastComma = t.lastIndexOf(','), lastDot = t.lastIndexOf('.');
+    var sep = Math.max(lastComma, lastDot);
+    var num = sep >= 0
+      ? t.slice(0, sep).replace(/[.,]/g, '') + '.' + t.slice(sep + 1).replace(/[.,]/g, '')
+      : t;
+    var v = parseFloat(num);
+    return (isFinite(v) && v >= 0) ? Math.round(v * 100) / 100 : 0;
+  }
+  // Datum als YYYY-MM-DD für <input type="date">
+  function isoDay(ts) {
+    if (!ts) return '';
+    var d = new Date(ts);
+    return isNaN(d) ? '' : d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  // Alle vergebenen Standorte (für Filter + Vorschlagsliste)
+  function allLocations() {
+    var m = {};
+    lib().forEach(function (b) { if (b.loc) m[b.loc] = (m[b.loc] || 0) + 1; });
+    return m;
+  }
+
+  // ── Besitz-Block im Detail: Standort · Verleih · Preis · Kaufdatum ──
+  function ownershipHtml(own) {
+    if (!own) return '';
+    var locs = Object.keys(allLocations()).sort();
+    var lent = own.lentTo ? String(own.lentTo) : '';
+    return '<details class="own-block"' + ((own.loc || lent || own.price) ? ' open' : '') + '>'
+      + '<summary>📦 Besitz &amp; Standort' + (own.loc ? ' <span class="own-badge">' + esc(own.loc) + '</span>' : '')
+      + (lent ? ' <span class="own-badge lent">verliehen</span>' : '') + '</summary>'
+      + '<div class="own-grid">'
+      + '<label for="ownLoc">📍 Standort</label>'
+      + '<input id="ownLoc" list="locList" type="text" placeholder="z. B. Regal Wohnzimmer" value="' + esc(own.loc || '') + '" />'
+      + '<datalist id="locList">' + locs.map(function (l) { return '<option value="' + esc(l) + '"></option>'; }).join('') + '</datalist>'
+      + '<label for="ownLent">🤝 Verliehen an</label>'
+      + '<input id="ownLent" type="text" placeholder="Name (leer = bei mir)" value="' + esc(lent) + '" />'
+      + '<label for="ownPrice">💰 Preis</label>'
+      // type="text" statt "number": bei type=number liefert .value LEER, sobald der Browser
+      // den Wert für ungültig hält — „12,90" mit Komma ist genau das. Auf deutscher Tastatur
+      // tippt man aber Komma, der Preis ginge sonst still verloren.
+      + '<input id="ownPrice" type="text" inputmode="decimal" placeholder="z. B. 7,50" value="' + (own.price > 0 ? String(own.price).replace('.', ',') : '') + '" />'
+      + '<label for="ownBought">🗓️ Gekauft am</label>'
+      + '<input id="ownBought" type="date" value="' + isoDay(own.boughtAt) + '" />'
+      + '</div>'
+      + (lent && own.lentAt ? '<p class="own-hint">🤝 Seit ' + fmtDate(own.lentAt) + ' bei <b>' + esc(lent) + '</b>'
+          + ((Date.now() - own.lentAt) > 90 * 86400000 ? ' — das ist schon eine Weile her!' : '') + '</p>' : '')
+      + '</details>';
+  }
+
+  // ── DNF-Block: Gründe als Chips + Seite beim Abbruch ──
+  function dnfHtml(own) {
+    if (!own || own.status !== 'dnf') return '';
+    var tags = own.dnfTags || [];
+    return '<div class="dnf-block">'
+      + '<div class="quotes-head">🚫 Warum abgebrochen?</div>'
+      + '<div class="quick-chips dnf-chips">'
+      + DNF_TAGS.map(function (t) {
+          return '<button class="chip' + (tags.indexOf(t) >= 0 ? ' active' : '') + '" data-dnftag="' + esc(t) + '">' + esc(t) + '</button>';
+        }).join('')
+      + '</div>'
+      + '<div class="dnf-row"><label for="dnfPageIn">Abgebrochen auf Seite</label>'
+      + '<input id="dnfPageIn" type="number" min="0" inputmode="numeric" placeholder="Seite" value="' + (own.dnfPage || '') + '" />'
+      + (own.pages ? '<span class="muted">von ' + own.pages + '</span>' : '') + '</div>'
+      + '<input id="dnfReasonIn" class="dnf-free" type="text" placeholder="Eigener Grund (optional)" value="' + esc(own.dnfReason || '') + '" />'
+      + '</div>';
+  }
+
+  // ── Lese-Tempo aus den Timer-Sessions (v14-D) ──
+  // Liefert Seiten/Stunde gesamt und je Schnitt (Format, Typ) + Sitzungs-Kennzahlen.
+  function paceStats() {
+    var sess = loadSessions();
+    var byId = bookIndex();
+    var tot = { min: 0, pages: 0 }, byFormat = {}, byKind = {}, hours = new Array(24).fill(0);
+    var longest = 0, count = 0;
+    // Seiten je Session sind nicht erfasst → über das Buch schätzen:
+    // gelesene Seiten des Buchs anteilig auf seine Session-Minuten verteilen.
+    var minsPerBook = {};
+    sess.forEach(function (s) { if (s.bookId) minsPerBook[s.bookId] = (minsPerBook[s.bookId] || 0) + (s.minutes || 0); });
+    sess.forEach(function (s) {
+      var mn = s.minutes || 0;
+      if (mn <= 0) return;
+      count++;
+      if (mn > longest) longest = mn;
+      tot.min += mn;
+      try { hours[new Date(s.start).getHours()]++; } catch (e) {}
+      var b = s.bookId && byId[s.bookId];
+      if (!b) return;
+      var readPages = b.status === 'read' ? (b.pages || 0) : (b.progress || 0);
+      if (!readPages || !minsPerBook[b.id]) return;
+      var share = readPages * (mn / minsPerBook[b.id]);
+      tot.pages += share;
+      var f = b.format || 'print';
+      byFormat[f] = byFormat[f] || { min: 0, pages: 0 };
+      byFormat[f].min += mn; byFormat[f].pages += share;
+      var k = b.kind === 'manga' ? 'manga' : b.kind === 'magazin' ? 'magazin' : 'buch';
+      byKind[k] = byKind[k] || { min: 0, pages: 0 };
+      byKind[k].min += mn; byKind[k].pages += share;
+    });
+    function pph(o) { return (o && o.min >= 10 && o.pages > 0) ? (o.pages / (o.min / 60)) : 0; }
+    return {
+      sessions: count, totalMin: tot.min, longest: longest,
+      avgSession: count ? Math.round(tot.min / count) : 0,
+      pagesPerHour: pph(tot), byFormat: byFormat, byKind: byKind, hours: hours,
+      pphOf: pph
+    };
+  }
+
+  // ── Tsundoku-Bilanz: ungelesener Stapel in Seiten/Zeit/Geld (v14-C) ──
+  function tsundoku() {
+    var want = lib().filter(function (b) { return b.status === 'want'; });
+    var pages = want.reduce(function (s, b) { return s + (b.pages || 0); }, 0);
+    var spent = want.reduce(function (s, b) { return s + (b.price > 0 ? b.price : 0); }, 0);
+    var pph = paceStats().pagesPerHour;
+    // Ohne Timer-Daten: gängiger Schnitt (Manga liest sich deutlich schneller als Prosa)
+    if (!pph) {
+      var mangaShare = want.length ? want.filter(function (b) { return b.kind === 'manga'; }).length / want.length : 0;
+      pph = 40 + mangaShare * 70;
+    }
+    var hours = pages > 0 ? pages / pph : 0;
+    // Älteste Karteileiche: liegt am längsten auf „Will lesen"
+    var oldest = null;
+    want.forEach(function (b) { if (b.addedAt && (!oldest || b.addedAt < oldest.addedAt)) oldest = b; });
+    return { count: want.length, pages: pages, hours: hours, spent: spent, oldest: oldest, pph: pph };
+  }
+
   // ───── Detail-Modal ─────
   var modalBook = null;
   function openDetail(b) {
@@ -1817,6 +2330,11 @@
     if (own && own.status === 'want') {
       statusRow += '<button class="status-btn' + (own.wishPrio ? ' active' : '') + '" data-prio="1">' + (own.wishPrio ? '⭐ Hohe Priorität' : '☆ Priorität setzen') + '</button>';
     }
+    // v14: in die „Als Nächstes"-Warteschlange (für alles Ungelesene sinnvoll)
+    if (own && own.status !== 'read') {
+      statusRow += '<button class="status-btn' + (own.tbrPos > 0 ? ' active' : '') + '" data-tbrtoggle="1">'
+        + (own.tbrPos > 0 ? '📋 Platz ' + own.tbrPos + ' — entfernen' : '📋 Als Nächstes') + '</button>';
+    }
 
     var stars = '';
     for (var i = 1; i <= 5; i++) {
@@ -1842,6 +2360,8 @@
           : '')
         + forecastHtml(own)
         + formatRowHtml(own)
+        + dnfHtml(own)
+        + ownershipHtml(own)
         + '<div class="tags-edit"><label for="tagsInput">🏷️ Regale/Tags (Komma-getrennt):</label>'
           + '<input id="tagsInput" type="text" placeholder="z. B. Klassiker, Urlaub 2026" value="' + esc((own.tags || []).join(', ')) + '" /></div>'
         + '<div style="padding:8px 18px 0"><textarea class="note-area" id="noteArea" placeholder="Deine Notizen zu diesem Buch…">' + esc(own.note || '') + '</textarea></div>'
@@ -1852,6 +2372,10 @@
       + '<div class="detail-body">'
       + (b.desc ? '<h3>Beschreibung</h3><div class="desc">' + esc(b.desc.replace(/<[^>]+>/g, ' ')).slice(0, 2200) + '</div>' : '<p class="muted" style="margin-top:14px">Keine Beschreibung verfügbar.</p>')
       + '<div class="similar-block"><button class="btn-ghost" id="similarBtn">🔗 Ähnliche ' + (b.kind === 'manga' ? 'Mangas' : 'Bücher') + ' finden</button><div id="similarGrid" class="grid" style="margin-top:12px"></div></div>'
+      // v14: Verwandte Werke — findet Spin-offs/Sequels, die das Titel-Parsing nicht erkennt
+      + (b.kind === 'manga'
+        ? '<div class="similar-block"><button class="btn-ghost" id="relBtn">🧬 Gehört dazu (Spin-offs &amp; Fortsetzungen)</button><div id="relBox" style="margin-top:12px"></div></div>'
+        : '')
       + '</div>';
 
     m.hidden = false;
@@ -1863,9 +2387,11 @@
         var s = btn.dataset.status;
         upsertBook(b, s);
         if (s === 'dnf') {
-          var reason = window.prompt('Warum abgebrochen? (optional — z. B. „zu langatmig")', (findInLib(b.id) || {}).dnfReason || '');
-          if (reason !== null) patchBook(b.id, { dnfReason: reason.slice(0, 200) });
-          toast('🚫 Als abgebrochen markiert');
+          // v14: Grund wird jetzt unten per Chips erfasst (auswertbar) — kein prompt() mehr,
+          // das auf iOS-PWA ohnehin unschön ist. Seite beim Abbruch aus dem Fortschritt vorbelegen.
+          var c0 = findInLib(b.id) || {};
+          if (!c0.dnfPage && c0.progress > 0) patchBook(b.id, { dnfPage: c0.progress });
+          toast('🚫 Abgebrochen — Grund unten auswählen');
         } else {
           toast(STATUS_LBL[s] + ' — gespeichert ✓');
         }
@@ -1902,6 +2428,14 @@
       checkAchievements();
       openDetail(b);
     });
+    // v14: Warteschlangen-Schalter
+    var tq = inner.querySelector('[data-tbrtoggle]');
+    if (tq) tq.addEventListener('click', function () {
+      var cur = findInLib(b.id) || {};
+      if (cur.tbrPos > 0) { patchBook(b.id, { tbrPos: 0 }); toast('Aus der Warteschlange genommen'); }
+      else { tbrAdd(b.id); toast('📋 In „Als Nächstes" eingereiht ✓'); }
+      openDetail(b);
+    });
     var pr = inner.querySelector('[data-prio]');
     if (pr) pr.addEventListener('click', function () {
       var cur = findInLib(b.id);
@@ -1920,6 +2454,58 @@
     var na = inner.querySelector('#noteArea');
     if (na) na.addEventListener('change', function () { patchBook(b.id, { note: na.value }); toast('Notiz gespeichert ✓'); });
 
+    // v14: Besitz — Standort, Verleih, Preis, Kaufdatum
+    var locIn = inner.querySelector('#ownLoc');
+    if (locIn) locIn.addEventListener('change', function () {
+      patchBook(b.id, { loc: locIn.value.trim().slice(0, 60) });
+      toast(locIn.value.trim() ? '📍 Standort gespeichert ✓' : 'Standort entfernt');
+    });
+    var lentIn = inner.querySelector('#ownLent');
+    if (lentIn) lentIn.addEventListener('change', function () {
+      var who = lentIn.value.trim().slice(0, 60);
+      var cur = findInLib(b.id) || {};
+      // Datum nur beim ERSTEN Verleihen setzen, sonst bliebe die Dauer nicht erhalten
+      patchBook(b.id, who ? { lentTo: who, lentAt: cur.lentAt || Date.now() } : { lentTo: '', lentAt: 0 });
+      toast(who ? '🤝 Als verliehen vermerkt ✓' : '📗 Wieder da ✓');
+      openDetail(b);
+    });
+    var prIn = inner.querySelector('#ownPrice');
+    if (prIn) prIn.addEventListener('change', function () {
+      var v = parsePrice(prIn.value);
+      patchBook(b.id, { price: v });
+      toast(v > 0 ? '💰 ' + money(v) + ' gespeichert ✓' : 'Preis entfernt');
+    });
+    var boIn = inner.querySelector('#ownBought');
+    if (boIn) boIn.addEventListener('change', function () {
+      var t = boIn.value ? new Date(boIn.value + 'T12:00:00').getTime() : 0;
+      patchBook(b.id, { boughtAt: isFinite(t) ? t : 0 });
+      toast(t ? '🗓️ Kaufdatum gespeichert ✓' : 'Kaufdatum entfernt');
+    });
+
+    // v14: DNF-Gründe (Chips zum Umschalten) + Seite + Freitext
+    inner.querySelectorAll('[data-dnftag]').forEach(function (ch) {
+      ch.addEventListener('click', function () {
+        var cur = findInLib(b.id) || {};
+        var tags = (cur.dnfTags || []).slice();
+        var t = ch.dataset.dnftag;
+        var i = tags.indexOf(t);
+        if (i >= 0) tags.splice(i, 1); else tags.push(t);
+        patchBook(b.id, { dnfTags: tags });
+        ch.classList.toggle('active', i < 0);
+      });
+    });
+    var dnfP = inner.querySelector('#dnfPageIn');
+    if (dnfP) dnfP.addEventListener('change', function () {
+      var v = parseInt(dnfP.value, 10);
+      patchBook(b.id, { dnfPage: (isFinite(v) && v >= 0) ? v : 0 });
+      toast('Gespeichert ✓');
+    });
+    var dnfR = inner.querySelector('#dnfReasonIn');
+    if (dnfR) dnfR.addEventListener('change', function () {
+      patchBook(b.id, { dnfReason: dnfR.value.trim().slice(0, 200) });
+      toast('Gespeichert ✓');
+    });
+
     // v11.3: Cover für DIESEN Titel online nachladen (falls der Batch-Nachlader es nicht schaffte)
     var clBtn = inner.querySelector('#coverLoadBtn');
     if (clBtn) clBtn.addEventListener('click', function () {
@@ -1935,6 +2521,36 @@
         }
       }).catch(function () {
         clBtn.disabled = false; clBtn.textContent = '📡 Fehlgeschlagen — erneut?';
+      });
+    });
+
+    // v14: Verwandte Werke via AniList (Sequel/Prequel/Spin-off + Empfehlungen)
+    var relBtn = inner.querySelector('#relBtn');
+    if (relBtn) relBtn.addEventListener('click', function () {
+      var box = inner.querySelector('#relBox');
+      relBtn.disabled = true; relBtn.textContent = '🧬 Suche verwandte Werke…';
+      // Serientitel ohne Bandnummer suchen — „One Piece Band 5" findet sonst nichts
+      alRelated(coverSearchTitle(b)).then(function (res) {
+        relBtn.style.display = 'none';
+        var html = '';
+        if (res.relations.length) {
+          lastRelated = res.relations.map(function (r) { return r.book; });
+          html += '<p class="section-sub" style="margin:0 0 8px">Zur selben Welt gehören:</p><div class="grid">'
+            + res.relations.map(function (r) {
+                return cardHtml(r.book, { src: 'related', reason: r.label + (inLib(r.book) ? ' · ✓ hast du' : '') });
+              }).join('') + '</div>';
+        }
+        if (res.recos.length) {
+          var fresh = res.recos.filter(function (x) { return !inLib(x); }).slice(0, 6);
+          if (fresh.length) {
+            lastRelated = (lastRelated || []).concat(fresh);
+            html += '<p class="section-sub" style="margin:14px 0 8px">Leser·innen mochten außerdem:</p><div class="grid">'
+              + fresh.map(function (x) { return cardHtml(x, { src: 'related' }); }).join('') + '</div>';
+          }
+        }
+        box.innerHTML = html || '<p class="muted">Keine verwandten Werke gefunden.</p>';
+      }).catch(function () {
+        relBtn.disabled = false; relBtn.textContent = '📡 Fehlgeschlagen — erneut?';
       });
     });
 
@@ -2074,6 +2690,7 @@
     if (src === 'search') b = lastSearch.find(function (x) { return x.id === id; });
     else if (src === 'reco') { var r = lastReco.find(function (x) { return x.book.id === id; }); b = r && r.book; }
     else if (src === 'similar') b = lastSimilar.find(function (x) { return x.id === id; });
+    else if (src === 'related') b = lastRelated.find(function (x) { return x.id === id; });
     else b = findInLib(id);
     if (b) openDetail(findInLib(id) || b);
   });
@@ -2156,6 +2773,9 @@
       + '<button class="bulk-act" data-bulk="read">✓ Gelesen</button>'
       + '<button class="bulk-act" data-bulk="want">🔖 Will lesen</button>'
       + '<button class="bulk-act" data-bulk="tag">🏷️ Tag</button>'
+      // v14: Standort + Preis nur per Bulk realistisch — 800 Bände einzeln wäre niemandem zumutbar
+      + '<button class="bulk-act" data-bulk="loc">📍 Standort</button>'
+      + '<button class="bulk-act" data-bulk="price">💰 Preis</button>'
       + '<button class="bulk-act danger" data-bulk="delete">🗑️</button>';
     bar.querySelectorAll('.bulk-act').forEach(function (btn) {
       btn.addEventListener('click', function () { doBulk(btn.dataset.bulk); });
@@ -2186,6 +2806,34 @@
       }
       saveBooks(all2);
       toast('🏷️ „' + tag + '" zu ' + ids.length + ' Titeln hinzugefügt');
+      exitSelectMode();
+    } else if (action === 'loc') {
+      // v14: Standort für viele Bände auf einmal — der einzig realistische Weg bei großen Reihen
+      var known = Object.keys(allLocations()).sort();
+      var loc = window.prompt('Standort für ' + ids.length + ' Titel'
+        + (known.length ? '\n(bisher genutzt: ' + known.slice(0, 8).join(', ') + ')' : '')
+        + '\n\nLeer lassen = Standort entfernen', known[0] || 'Regal Wohnzimmer');
+      if (loc == null) return;
+      loc = loc.trim().slice(0, 60);
+      var all3 = loadBooks(), now3 = Date.now(), idset3 = Object.create(null);
+      ids.forEach(function (i) { idset3[i] = 1; });
+      for (var k3 = 0; k3 < all3.length; k3++) if (idset3[all3[k3].id]) {
+        all3[k3] = Object.assign({}, all3[k3], { loc: loc, updatedAt: now3 });
+      }
+      saveBooks(all3);
+      toast(loc ? '📍 „' + loc + '" für ' + ids.length + ' Titel gesetzt' : '📍 Standort bei ' + ids.length + ' Titeln entfernt');
+      exitSelectMode();
+    } else if (action === 'price') {
+      var pRaw = window.prompt('Preis pro Band für ' + ids.length + ' Titel (in €):\n\nLeer lassen = Preis entfernen', '7,50');
+      if (pRaw == null) return;
+      var price = parsePrice(pRaw);
+      var all4 = loadBooks(), now4 = Date.now(), idset4 = Object.create(null);
+      ids.forEach(function (i) { idset4[i] = 1; });
+      for (var k4 = 0; k4 < all4.length; k4++) if (idset4[all4[k4].id]) {
+        all4[k4] = Object.assign({}, all4[k4], { price: price, updatedAt: now4 });
+      }
+      saveBooks(all4);
+      toast(price > 0 ? '💰 ' + money(price) + ' × ' + ids.length + ' = ' + money(price * ids.length) : 'Preis entfernt');
       exitSelectMode();
     } else if (action === 'delete') {
       if (!window.confirm(ids.length + ' Titel wirklich entfernen?')) return;
@@ -2826,6 +3474,134 @@
   }
 
   // ───── v4: Jahresrückblick ─────
+  /* ── v14-F: Jahres-Duell — zwei Jahre direkt nebeneinander ──
+     Der Jahresrückblick ist ein Dezember-Erlebnis; der Vergleich ist ganzjährig
+     interessant („bin ich schneller als letztes Jahr?"). Nutzt nur readDates. */
+  function yearFacts(yr) {
+    var books = lib();
+    var read = books.filter(function (b) {
+      return readDatesOf(b).some(function (ts) { return new Date(ts).getFullYear() === yr; });
+    });
+    var pages = read.reduce(function (s, b) { return s + (b.pages || 0); }, 0);
+    var rated = read.filter(function (b) { return b.rating > 0; });
+    var gen = {};
+    read.forEach(function (b) { (b.categories || []).forEach(function (c) { var g = c.split('/')[0].trim(); if (g) gen[g] = (gen[g] || 0) + 1; }); });
+    var minutes = loadSessions().filter(function (s) { return new Date(s.start).getFullYear() === yr; })
+      .reduce(function (s, x) { return s + (x.minutes || 0); }, 0);
+    var dnf = books.filter(function (b) {
+      return b.status === 'dnf' && b.updatedAt && new Date(b.updatedAt).getFullYear() === yr;
+    }).length;
+    var spent = books.filter(function (b) {
+      return b.price > 0 && b.boughtAt && new Date(b.boughtAt).getFullYear() === yr;
+    }).reduce(function (s, b) { return s + b.price; }, 0);
+    return {
+      year: yr, count: read.length, pages: pages,
+      avgRating: rated.length ? (rated.reduce(function (s, b) { return s + b.rating; }, 0) / rated.length) : 0,
+      avgPages: read.length ? Math.round(pages / read.length) : 0,
+      topGenre: Object.keys(gen).sort(function (a, b) { return gen[b] - gen[a]; })[0] || '–',
+      minutes: minutes, dnf: dnf, spent: spent, books: read
+    };
+  }
+  // Kumulierte Seiten je Kalendertag → „zum selben Datum" vergleichbar
+  function cumPages(yr) {
+    var arr = new Array(366).fill(0);
+    lib().forEach(function (b) {
+      readDatesOf(b).forEach(function (ts) {
+        var d = new Date(ts);
+        if (d.getFullYear() !== yr) return;
+        var doy = Math.floor((d - new Date(yr, 0, 0)) / 86400000);
+        if (doy >= 0 && doy < 366) arr[doy] += (b.pages || 0);
+      });
+    });
+    var out = [], run = 0;
+    for (var i = 0; i < 366; i++) { run += arr[i]; out.push(run); }
+    return out;
+  }
+  function openYearDuel() {
+    var years = {};
+    lib().forEach(function (b) { readDatesOf(b).forEach(function (ts) { years[new Date(ts).getFullYear()] = 1; }); });
+    var list = Object.keys(years).map(Number).sort(function (a, b) { return b - a; });
+    var nowY = new Date().getFullYear();
+    if (list.indexOf(nowY) < 0) list.unshift(nowY);
+    if (list.length < 2) { toast('📈 Dafür brauchst du Lese-Daten aus mindestens 2 Jahren.'); return; }
+
+    var m = document.createElement('div');
+    m.className = 'year-modal';
+    m.innerHTML = '<div class="year-card duel-card">'
+      + '<div class="year-head">📈 Jahre vergleichen</div>'
+      + '<div class="duel-picks">'
+      + '<select id="duelA" class="select-mini">' + list.map(function (y) { return '<option value="' + y + '"' + (y === list[0] ? ' selected' : '') + '>' + y + '</option>'; }).join('') + '</select>'
+      + '<span class="duel-vs">vs.</span>'
+      + '<select id="duelB" class="select-mini">' + list.map(function (y) { return '<option value="' + y + '"' + (y === list[1] ? ' selected' : '') + '>' + y + '</option>'; }).join('') + '</select>'
+      + '</div>'
+      + '<div id="duelBody"></div>'
+      + '<div class="year-btns"><button class="btn-ghost" id="duelClose">Schließen</button></div></div>';
+    document.body.appendChild(m);
+
+    function cmp(a, b, higherBetter) {
+      if (!a && !b) return '';
+      if (a === b) return '<span class="duel-eq">=</span>';
+      var better = higherBetter === false ? (a < b) : (a > b);
+      return '<span class="duel-' + (better ? 'up' : 'down') + '">' + (better ? '▲' : '▼') + '</span>';
+    }
+    function drawDuel() {
+      var yA = parseInt(m.querySelector('#duelA').value, 10);
+      var yB = parseInt(m.querySelector('#duelB').value, 10);
+      var A = yearFacts(yA), B = yearFacts(yB);
+      function row(lbl, va, vb, fa, fb, higherBetter) {
+        return '<div class="duel-row"><span class="duel-a">' + (fa || va) + ' ' + cmp(va, vb, higherBetter) + '</span>'
+          + '<span class="duel-lbl">' + lbl + '</span>'
+          + '<span class="duel-b">' + (fb || vb) + '</span></div>';
+      }
+      // Pace-Kurve: kumulierte Seiten, beide Jahre übereinander
+      var cA = cumPages(yA), cB = cumPages(yB);
+      var maxV = Math.max(cA[365], cB[365], 1);
+      // Das laufende Jahr nur bis heute zeichnen (sonst flacher Strich bis Silvester)
+      var endA = yA === nowY ? Math.floor((Date.now() - new Date(yA, 0, 0)) / 86400000) : 365;
+      var endB = yB === nowY ? Math.floor((Date.now() - new Date(yB, 0, 0)) / 86400000) : 365;
+      function poly(c, end) {
+        var pts = [];
+        for (var i = 0; i <= Math.min(end, 365); i += 3) {
+          pts.push(Math.round(i / 365 * 300) + ',' + Math.round(90 - c[i] / maxV * 82));
+        }
+        return pts.join(' ');
+      }
+      var chart = maxV > 1
+        ? '<svg class="duel-chart" viewBox="0 0 300 100" preserveAspectRatio="none" role="img" aria-label="Kumulierte Seiten im Jahresverlauf">'
+          + '<polyline class="duel-line-b" points="' + poly(cB, endB) + '" />'
+          + '<polyline class="duel-line-a" points="' + poly(cA, endA) + '" />'
+          + '</svg>'
+          + '<div class="duel-legend"><span class="dl-a">■ ' + yA + '</span><span class="dl-b">■ ' + yB + '</span>'
+          + '<span class="muted">kumulierte Seiten · Jan → Dez</span></div>'
+        : '';
+      // Direkter Stand-heute-Vergleich (fair: gleicher Kalendertag)
+      var today = Math.min(365, Math.floor((Date.now() - new Date(nowY, 0, 0)) / 86400000));
+      var atA = cA[Math.min(today, endA)], atB = cB[Math.min(today, endB)];
+      var verdict = (atA || atB)
+        ? '<p class="duel-verdict">' + (atA > atB
+            ? '🚀 ' + yA + ' liegt zum ' + today + '. Tag mit <b>' + (atA - atB).toLocaleString('de-DE') + ' Seiten</b> vorn.'
+            : atA < atB ? '🐢 ' + yA + ' liegt zum ' + today + '. Tag <b>' + (atB - atA).toLocaleString('de-DE') + ' Seiten</b> zurück.'
+            : '⚖️ Gleichstand zum ' + today + '. Tag.') + '</p>'
+        : '';
+      m.querySelector('#duelBody').innerHTML =
+        '<div class="duel-table">'
+        + row('Bücher', A.count, B.count)
+        + row('Seiten', A.pages, B.pages, A.pages.toLocaleString('de-DE'), B.pages.toLocaleString('de-DE'))
+        + row('Ø Länge', A.avgPages, B.avgPages, A.avgPages + ' S.', B.avgPages + ' S.')
+        + (A.avgRating || B.avgRating ? row('Ø Bewertung', A.avgRating, B.avgRating, A.avgRating ? A.avgRating.toFixed(1) + '★' : '–', B.avgRating ? B.avgRating.toFixed(1) + '★' : '–') : '')
+        + (A.minutes || B.minutes ? row('Lesezeit', A.minutes, B.minutes, Math.round(A.minutes / 60) + ' h', Math.round(B.minutes / 60) + ' h') : '')
+        + (A.dnf || B.dnf ? row('Abgebrochen', A.dnf, B.dnf, A.dnf, B.dnf, false) : '')
+        + (A.spent || B.spent ? row('Ausgaben', A.spent, B.spent, money(A.spent), money(B.spent), false) : '')
+        + '<div class="duel-row"><span class="duel-a">' + esc(A.topGenre.slice(0, 16)) + '</span><span class="duel-lbl">Top-Genre</span><span class="duel-b">' + esc(B.topGenre.slice(0, 16)) + '</span></div>'
+        + '</div>' + chart + verdict;
+    }
+    m.querySelector('#duelA').addEventListener('change', drawDuel);
+    m.querySelector('#duelB').addEventListener('change', drawDuel);
+    m.querySelector('#duelClose').addEventListener('click', function () { m.remove(); });
+    m.addEventListener('click', function (e) { if (e.target === m) m.remove(); });
+    drawDuel();
+  }
+
   function openYearReview() {
     var yr = new Date().getFullYear();
     var books = lib(), read = books.filter(function (b) {
@@ -3060,8 +3836,8 @@
     });
 
     // Sammlung: Filter
-    ['filterStatus', 'filterGenre', 'sortLib', 'filterKind', 'filterPublisher'].forEach(function (id) {
-      $(id).addEventListener('change', renderLib);
+    ['filterStatus', 'filterGenre', 'sortLib', 'filterKind', 'filterPublisher', 'filterLoc'].forEach(function (id) {
+      if ($(id)) $(id).addEventListener('change', renderLib);
     });
     $('exportBtn').addEventListener('click', exportJson);
     $('dupBtn').addEventListener('click', openDupModal);
@@ -3139,6 +3915,7 @@
     // Scanner + Zufallsrad + Tag-Filter + Sammlungs-Suche
     $('scanBtn').addEventListener('click', startScanner);
     $('rollBtn').addEventListener('click', rollNext);
+    if ($('tbrFillBtn')) $('tbrFillBtn').addEventListener('click', openTbrSuggest);
     $('filterTag').addEventListener('change', renderLib);
     // Live-Suche entprellt (bei großen Sammlungen nicht bei jedem Tastendruck neu filtern)
     var libSearchTimer = null;

@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Literata:wght@600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/styles.css?v=13.3" />
+<link rel="stylesheet" href="css/styles.css?v=14" />
 </head>
 <body>
 
@@ -68,6 +68,13 @@
     <h2>📖 Du liest gerade</h2>
     <p class="section-sub">Angefangene Bücher</p>
     <div id="homeReading" class="grid"></div>
+  </div>
+  <div class="home-section" id="homeTbrSection" hidden>
+    <div class="home-section-head">
+      <div><h2>📋 Als Nächstes</h2><p class="section-sub" id="tbrSub">Deine persönliche Lese-Warteschlange</p></div>
+      <button class="btn-ghost" id="tbrFillBtn" title="Nächste Bände laufender Reihen vorschlagen">✨ Vorschlagen</button>
+    </div>
+    <div id="homeTbr" class="tbr-list"></div>
   </div>
   <div class="home-section" id="homeRecentSection" hidden>
     <h2>🕘 Zuletzt hinzugefügt</h2>
@@ -147,6 +154,7 @@
     <select id="filterGenre" class="select-mini" aria-label="Genre"><option value="">Alle Genres</option></select>
     <select id="filterPublisher" class="select-mini" aria-label="Verlag" style="display:none"><option value="">Alle Verlage</option></select>
     <select id="filterTag" class="select-mini" aria-label="Regal/Tag"><option value="">Alle Regale/Tags</option></select>
+    <select id="filterLoc" class="select-mini" aria-label="Standort" style="display:none"><option value="">Alle Standorte</option></select>
     <select id="sortLib" class="select-mini" aria-label="Sortieren">
       <option value="added">Sortierung: Zuletzt hinzugefügt</option>
       <option value="title">Sortierung: Titel</option>
@@ -342,6 +350,10 @@
         <p class="muted" style="margin:0;">🧭 Stimmungs-Picker „Worauf hast du Lust?" · 🎯 Fertig-Prognose bei „Lese gerade" (Restzeit aus Timer-Tempo/Startdatum) · 💡 Bildschirm bleibt beim Lese-Timer an (Wake Lock) · 🎯 Jahres-Leseziel mit Fortschrittsring auf der Startseite · Automatisches Lese-Tagebuch (Start-/Enddatum je Buch) · 🔥 Aktivitäts-Heatmap (26 Wochen) · Zitat des Tages · 📚 Buchreihen-Erkennung mit fehlenden Bänden · ⏱️ Lese-Timer mit Sessions &amp; Lesezeit-Statistik · 🏆 12 Erfolge/Abzeichen · 📚 Jahresrückblick als speicherbares Bild · 📅 Erscheinungs-Radar für Wunschbücher · 🔔 Tägliche Lese-Erinnerung · ≈ Bibliotheks-Wert</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Große Sammlungen &amp; Aufräumen</p>
         <p class="muted" style="margin:0;">⚡ Flüssig auch bei ~10.000 Titeln (virtualisierte Liste, im RAM gecachte Datenbank) · Treffer-Zähler · 🧹 Duplikat-Erkennung (nach ISBN bzw. Titel + Autor·in) mit Ein-Klick-Bereinigung (je Titel bleibt eins) · 🖼️ Fehlende Cover automatisch nachladen (Open Library, gedrosselt, mit Fortschritt) · 🗑️ Komplette Sammlung zurücksetzen (mit Sicherheitsabfrage) · schneller Massen-Import (CSV/JSON) · Speicher-voll-Warnung · 📰 Zeitschriften als eigener Typ mit Verlag &amp; Ausgabe · 📓 Lesetagebuch (datierte Einträge) · 🖼️ Zitate als teilbare Bild-Karten · 📚 Serien-Ansicht (Bände einer Reihe als eine Kachel, mit fehlenden Bänden &amp; Shop-Links) · ☑️ Mehrfachauswahl &amp; Bulk-Aktionen (Status/Tag/Löschen für viele Titel auf einmal) · Sortierung auch nach Verlag / Jahr / Seitenzahl · Statistik: Gelesen pro Monat &amp; Top-Verlage · ☁️ Delta-Sync (nur geänderte Sammlungen werden hochgeladen) · IndexedDB-Speicher für sehr große Sammlungen · komprimierter Cloud-Sync</p>
+        <p class="muted" style="font-weight:700;margin:8px 0 2px;">Sammler-Werkzeuge <span style="color:var(--accent)">(neu in v14)</span></p>
+        <p class="muted" style="margin:0;">📍 <b>Standort je Titel</b> („Regal Wohnzimmer", „Kiste Keller") mit eigenem Filter — findet jeden Band in großen Sammlungen wieder · 🤝 <b>Verleih-Verwaltung</b>: an wen &amp; seit wann, mit Erinnerung bei über 90 Tagen · 💰 <b>Preis &amp; Kaufdatum</b> je Titel (versteht 7,50 · 7.50 · 1.234,50 €) → echte <b>Ausgaben-Statistik</b> (pro Jahr, Ø pro Band, teuerste Reihe, Kosten pro Lesestunde) und ein Bibliotheks-Wert aus echten Preisen statt Schätzung · ☑️ <b>Massen-Erfassung</b>: Standort und Preis für eine ganze Reihe auf einmal setzen · 📋 <b>„Als Nächstes"-Warteschlange</b> auf der Startseite mit Reihenfolge zum Umsortieren, ✨ Auto-Vorschlag des <b>nächsten Bandes laufender Reihen</b> und Stapel-Bilanz (Titel · Seiten · geschätzte Lesestunden · investiertes Geld) · 🧬 <b>„Gehört dazu"</b> bei Mangas: findet Spin-offs, Fortsetzungen, Vorgeschichten &amp; Nebengeschichten über AniList — auch die, die im Titel nicht als Band erkennbar sind</p>
+        <p class="muted" style="font-weight:700;margin:8px 0 2px;">Neue Auswertungen <span style="color:var(--accent)">(v14)</span></p>
+        <p class="muted" style="margin:0;">⏱️ <b>Lese-Tempo</b> aus deinen Timer-Sitzungen: Seiten pro Stunde gesamt sowie je Format (Print/E-Book/Hörbuch) und je Typ (Manga/Buch/Zeitschrift), Ø &amp; längste Sitzung, plus Histogramm <b>„wann du liest"</b> mit deiner besten Lesezeit · 🚫 <b>Abbruch-Analyse</b>: Gründe als antippbare Chips (Tempo, Stil, Thema, Übersetzung, Zeichnung …), Seite beim Abbruch, Abbruchquote, Ø Abbruchseite &amp; häufigste Gründe · 📈 <b>Jahres-Duell</b>: zwei Jahre nebeneinander (Bücher, Seiten, Ø Länge, Bewertung, Lesezeit, Abbrüche, Ausgaben) samt Kurve der kumulierten Seiten — beantwortet „bin ich schneller als letztes Jahr?" zum gleichen Kalendertag</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Empfehlungen</p>
         <p class="muted" style="margin:0;">Personalisierte Buch-Tipps aus deiner Sammlung (Lieblings-Genres, -Autor·innen, Bewertungen) · Begründung pro Empfehlung · Lese-Tipp auf der Startseite</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Statistik</p>
@@ -352,7 +364,7 @@
         <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Kerzenlicht-Glühen im Hero · Gestaffelte Karten-Animationen · Cover-Zoom &amp; Glanz-Effekt · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata) · 🌗 Auto-Theme nach Systemeinstellung</p>
       </div>
     </details>
-    <p class="muted" style="font-size:12px;margin-top:8px;">Version v13.3</p>
+    <p class="muted" style="font-size:12px;margin-top:8px;">Version v14</p>
   </div>
 </section>
 
@@ -367,14 +379,14 @@
 
 <footer class="appfoot">
   <p>Buchdaten: Google Books · Open Library · Deutsche Nationalbibliothek — Cover © jeweilige Verlage</p>
-  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v13.3</p>
+  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v14</p>
 </footer>
 
-<script src="js/vendor/lz-string.min.js?v=13.3"></script>
-<script src="js/store.js?v=13.3"></script>
-<script src="js/update.js?v=13.3"></script>
-<script src="js/cloud.js?v=13.3"></script>
-<script src="js/app.js?v=13.3"></script>
-<script src="js/mascot.js?v=13.3"></script>
+<script src="js/vendor/lz-string.min.js?v=14"></script>
+<script src="js/store.js?v=14"></script>
+<script src="js/update.js?v=14"></script>
+<script src="js/cloud.js?v=14"></script>
+<script src="js/app.js?v=14"></script>
+<script src="js/mascot.js?v=14"></script>
 </body>
 </html>
