@@ -6,7 +6,7 @@
    - Eine neue Version kommt AUSSCHLIESSLICH über den Update-Banner: dessen
      Klick lädt mit ?_v=… → Netz erzwungen → Shell erneuert.
    - Cover-Cache (buecher-covers-v1) bleibt eigenständig und überlebt Updates. */
-const CACHE = 'buecher-v14';
+const CACHE = 'hon-v14-1';
 // Cover-Cache ist EIGENSTÄNDIG versioniert und überlebt App-Updates —
 // sonst wären nach jedem Versions-Bump alle Offline-Cover weg
 const COVER_CACHE = 'buecher-covers-v1';
