@@ -15,7 +15,7 @@ const COVER_CACHE = 'buecher-covers-v1';
 // sonst würde jeder Deploy still updaten.
 const SHELL = 'buecher-shell';
 // MUSS mit den ?v=-Bustern in index.html übereinstimmen (Versions-Trias!)
-const BUST = '?v=14';
+const BUST = '?v=14.1';
 
 // Kosmetische Statik (unkritisch fürs Versions-Pinning) — versionierter Cache
 const PRECACHE = [

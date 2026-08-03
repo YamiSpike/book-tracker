@@ -5,6 +5,7 @@
 (function () {
   'use strict';
   var APP_VERSION = 'v14.1'; // bei jedem Release zusammen mit sw.js-CACHE + BUST (?v=) + version.json bumpen
+  window.APP_VERSION = APP_VERSION;   // fuer whatsnew.js — steckt sonst nur in dieser IIFE
 
   // ?_v nach dem Update-Load wieder aus der URL entfernen: bliebe der Parameter
   // stehen, wäre JEDER spätere Reload dieses Tabs ein erzwungener Netz-Load —
