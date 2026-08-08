@@ -20,11 +20,11 @@ const BUST = '?v=14.1';
 // Kosmetische Statik (unkritisch fürs Versions-Pinning) — versionierter Cache
 const PRECACHE = [
   './manifest.json',
-  './icon.svg',
+  './icon.svg?v=14.1',
   './img/fuku.png',
-  './icons/icon-180.png',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
+  './icons/icon-180.png?v=14.1',
+  './icons/icon-192.png?v=14.1',
+  './icons/icon-512.png?v=14.1',
 ];
 
 // App-Code: gehört zur gepinnten Shell-Version → persistenter SHELL-Cache.
