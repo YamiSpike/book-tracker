@@ -150,12 +150,44 @@
     };
   }
 
+  /* v14.2: Google Books hat ein striktes, IP-bezogenes Kontingent (ohne Key).
+     Ist es erschöpft, antwortet der Dienst für längere Zeit mit HTTP 429 —
+     Wiederholen hilft dann NICHT, es vervielfacht nur die Anfragen und lässt
+     die App auf Antworten warten, die ohnehin nicht kommen. Deshalb:
+       · Mindestabstand zwischen zwei Google-Anfragen (verhindert das Auslösen),
+       · nach einem 429 wird Google für eine Weile übersprungen (Ruhephase).
+     Die anderen Quellen (Open Library, DNB, AniList) laufen unbeeinträchtigt
+     weiter, dadurch bleiben Ergebnisse vollständig statt in Fehlern zu enden. */
+  var GB_ABSTAND = 260;          // ms zwischen zwei Google-Anfragen
+  var GB_RUHE = 10 * 60 * 1000;  // nach einem 429 so lange nicht erneut fragen
+  var _gbLetzte = 0, _gbSchlange = Promise.resolve(), _gbGesperrtBis = 0;
+  function gbAktiv() { return Date.now() >= _gbGesperrtBis; }
+  function gbFetch(url) {
+    if (!gbAktiv()) return Promise.reject(new Error('Google Books pausiert (Kontingent)'));
+    var ergebnis = _gbSchlange.then(function () {
+      var warten = Math.max(0, GB_ABSTAND - (Date.now() - _gbLetzte));
+      return warten ? new Promise(function (r) { setTimeout(r, warten); }) : null;
+    }).then(function () {
+      if (!gbAktiv()) throw new Error('Google Books pausiert (Kontingent)');
+      _gbLetzte = Date.now();
+      return fetch(url).then(function (r) {
+        if (r.status === 429) {
+          _gbGesperrtBis = Date.now() + GB_RUHE;
+          throw new Error('Google Books: Kontingent erschöpft — pausiert');
+        }
+        if (!r.ok) throw new Error('Google Books nicht erreichbar (' + r.status + ')');
+        return r.json();
+      });
+    });
+    // Die Warteschlange selbst darf NIE im Fehlerzustand bleiben, sonst würde eine
+    // einzige abgelehnte Anfrage alle nachfolgenden mitreißen.
+    _gbSchlange = ergebnis.catch(function () { });
+    return ergebnis;
+  }
+
   function gbSearch(q, maxResults) {
     var url = GB + '?q=' + encodeURIComponent(q) + '&maxResults=' + (maxResults || 20) + '&printType=books';
-    return fetch(url).then(function (r) {
-      if (!r.ok) throw new Error('Google Books nicht erreichbar (' + r.status + ')');
-      return r.json();
-    }).then(function (j) {
+    return gbFetch(url).then(function (j) {
       return (j.items || []).map(normVolume).filter(function (b) { return b.title; });
     });
   }
@@ -261,10 +293,7 @@
   function gbMangaSearch(q, maxResults) {
     var url = GB + '?q=' + encodeURIComponent(q + ' manga') + '&maxResults=' + (maxResults || 20)
       + '&printType=books&langRestrict=de';
-    return fetch(url).then(function (r) {
-      if (!r.ok) throw new Error('Google Books nicht erreichbar (' + r.status + ')');
-      return r.json();
-    }).then(function (j) {
+    return gbFetch(url).then(function (j) {
       return (j.items || []).map(normVolume).filter(function (b) {
         // Nur echte Manga-Verlagsausgaben (Verlag passt ODER Kategorie „Comics")
         var cat = (b.categories || []).join(' ');
@@ -1416,8 +1445,9 @@
           if (doc) return 'https://covers.openlibrary.org/b/id/' + doc.cover_i + '-M.jpg';
           // Google Books als letzter Versuch (erkennt auch japanische/englische Titel)
           var gq = isbn.length >= 10 ? ('isbn:' + isbn) : q;
-          return fetch(GB + '?q=' + encodeURIComponent(gq) + '&maxResults=3&printType=books')
-            .then(function (r2) { return r2.ok ? r2.json() : null; })
+          // v14.2: ebenfalls über die Google-Schleuse — der Cover-Nachlader läuft
+          // sonst bei jedem Titel ins selbe Kontingent-Limit
+          return gbFetch(GB + '?q=' + encodeURIComponent(gq) + '&maxResults=3&printType=books')
             .then(function (j2) {
               var items = (j2 && j2.items) || [];
               for (var i = 0; i < items.length; i++) {
@@ -1721,11 +1751,27 @@
       queries.push({ q: t, reason: 'Ähnlich wie „' + books[0].title + '"' });
     }
 
-    return Promise.all(queries.map(function (Q) {
-      return (Q.manga ? searchMangas(Q.q, 10) : searchBooks(Q.q, 12)).then(function (items) {
-        return items.map(function (b) { return { book: b, reason: Q.reason }; });
-      }).catch(function () { return []; });
-    })).then(function (results) {
+    /* v14.2: Nicht mehr ALLE Anfragen auf einmal. Jede Query fächert intern in
+       3 Quellen auf — bei 7 Queries waren das über 40 gleichzeitige Anfragen,
+       von denen Google Books praktisch alle mit 429 ablehnte. Mit begrenzter
+       Gleichzeitigkeit bleibt die Last niedrig, ohne dass es spürbar länger dauert
+       (die kritische Quelle drosselt zusätzlich gbFetch). */
+    var GLEICHZEITIG = 3;
+    var eingesammelt = [], naechste = 0;
+    function arbeiter() {
+      if (naechste >= queries.length) return Promise.resolve();
+      var Q = queries[naechste++];
+      return (Q.manga ? searchMangas(Q.q, 10) : searchBooks(Q.q, 12))
+        .then(function (items) {
+          eingesammelt.push(items.map(function (b) { return { book: b, reason: Q.reason }; }));
+        })
+        .catch(function () { eingesammelt.push([]); })
+        .then(arbeiter);
+    }
+    var laufer = [];
+    for (var w = 0; w < Math.min(GLEICHZEITIG, queries.length); w++) laufer.push(arbeiter());
+
+    return Promise.all(laufer).then(function () { return eingesammelt; }).then(function (results) {
       var seen = {}, out = [];
       results.forEach(function (list) {
         list.forEach(function (r) {
