@@ -64,8 +64,8 @@
         out[k] = localStorage.getItem(k);
       }
     } catch (e) {}
-    // Bücher liegen seit v8 in IndexedDB (nicht mehr in localStorage) → aus dem Store holen.
-    // Seit v9 komprimiert übertragen (bk_books_lz): ~16× kleiner → große Sammlungen bleiben unter dem 4-MB-Limit.
+    // Bücher liegen seit v2 in IndexedDB (nicht mehr in localStorage) → aus dem Store holen.
+    // Seit v2.1 komprimiert übertragen (bk_books_lz): ~16× kleiner → große Sammlungen bleiben unter dem 4-MB-Limit.
     var raw = booksGetRaw();
     if (raw != null) {
       var lz = compressBooks(raw);

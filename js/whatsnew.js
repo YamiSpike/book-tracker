@@ -14,20 +14,23 @@
   // { v, titel, punkte: [ [Icon, Überschrift, Erklärung], … ] }
   // v muss exakt dem Präfix von APP_VERSION entsprechen (z. B. "v39").
   var CHANGELOG = [
-    { v: "v14.1", titel: "Du siehst jetzt, was sich geändert hat", punkte: [
+    { v: "v3.3", titel: "Neue Versionszählung", punkte: [
+      ["🔢", "Versionsnummer neu gezählt", "Bisher stieg die ganze Zahl fast bei jeder Auslieferung — so kam v14.2 zustande. Ab jetzt zählt die Stelle hinter dem Punkt fortlaufend, die ganze Zahl steigt nur noch bei echten Umbauten. Rückwirkend auf alle 27 Auslieferungen angewendet ergibt das v3.3. Es fehlt nichts, die App ist dieselbe — nur die Nummer ist wieder handlich."]
+    ]},
+    { v: "v3.1", titel: "Du siehst jetzt, was sich geändert hat", punkte: [
       ["🆕", "Dieses Fenster", "Nach einem Update erscheint eine kurze Übersicht der Neuerungen."]
     ]},
-    { v: "v14", titel: "Das Sammler-Paket", punkte: [
+    { v: "v3", titel: "Das Sammler-Paket", punkte: [
       ["📍", "Standort", "Wo im Regal ein Buch steht."],
       ["🤝", "Verleih", "Wer hat was ausgeliehen."],
       ["💶", "Ausgaben", "Was die Sammlung gekostet hat."],
       ["⏱️", "Lese-Tempo", "Wie schnell du durchkommst."],
       ["📉", "Abbruch-Analyse", "Welche Bücher liegen bleiben — und woran es liegt."]
     ]},
-    { v: "v13.3", titel: "Mehr Manga-Cover", punkte: [
+    { v: "v2.14", titel: "Mehr Manga-Cover", punkte: [
       ["🖼️", "Serien-basiert nachladen", "Gedrosselt, dafür findet er nahezu alle Titelbilder."]
     ]},
-    { v: "v13.2", titel: "Cover mehrsprachig suchen", punkte: [
+    { v: "v2.13", titel: "Cover mehrsprachig suchen", punkte: [
       ["🌍", "Auch fremdsprachige Ausgaben", "Findet Bilder, die unter deutschem Titel fehlen."]
     ]}
   ];

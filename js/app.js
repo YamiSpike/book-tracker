@@ -58,7 +58,7 @@
     }
     return _byId;
   }
-  // v4: Read-only-Modus für geteilte Sammlungen (?share=…)
+  // v1.4: Read-only-Modus für geteilte Sammlungen (?share=…)
   var sharedData = null;
 
   // aktive Bücher (ohne Lösch-Tombstones, die nur für den Sync existieren) — Ergebnis gecacht
@@ -74,7 +74,7 @@
   }
   function saveSettings(s) { try { localStorage.setItem(LS_SETTINGS, JSON.stringify(s)); } catch (e) {} }
 
-  // ───── v4: Lese-Sessions (Timer) ─────
+  // ───── v1.4: Lese-Sessions (Timer) ─────
   var LS_SESSIONS = 'bk_sessions', LS_ACTIVE = 'bk_active_session', LS_ACH = 'bk_achievements';
   function loadSessions() {
     try { var a = JSON.parse(localStorage.getItem(LS_SESSIONS) || '[]'); return Array.isArray(a) ? a : []; }
@@ -150,7 +150,7 @@
     };
   }
 
-  /* v14.2: Google Books hat ein striktes, IP-bezogenes Kontingent (ohne Key).
+  /* v3.2: Google Books hat ein striktes, IP-bezogenes Kontingent (ohne Key).
      Ist es erschöpft, antwortet der Dienst für längere Zeit mit HTTP 429 —
      Wiederholen hilft dann NICHT, es vervielfacht nur die Anfragen und lässt
      die App auf Antworten warten, die ohnehin nicht kommen. Deshalb:
@@ -276,7 +276,7 @@
     });
   }
 
-  // ───── v4/v5: Manga-Quellen (AniList + Jikan/MAL + deutsche Verlage via Google Books) ─────
+  // ───── v1.4/v1.5: Manga-Quellen (AniList + Jikan/MAL + deutsche Verlage via Google Books) ─────
   function normManga(o) {
     return {
       id: o.id, title: o.title, authors: o.authors, cover: o.cover,
@@ -338,7 +338,7 @@
     });
   }
 
-  /* ── v14-G: Verwandte Werke via AniList (keyless) ──
+  /* ── v3-G: Verwandte Werke via AniList (keyless) ──
      Titel-Parsing findet nur „Band N" derselben Reihe. Spin-offs, Sequels mit
      anderem Namen und Side Stories übersieht es komplett — genau die gehen einem
      Sammler durch die Lappen. AniList kennt diese Beziehungen (relations) und
@@ -446,7 +446,7 @@
     });
   }
 
-  // ───── v13: Zeitschriften/Magazine (Google-Books-Periodika + deutsche Verlage + DNB/ISSN) ─────
+  // ───── v2.11: Zeitschriften/Magazine (Google-Books-Periodika + deutsche Verlage + DNB/ISSN) ─────
   // Die großen deutschen Zeitschriften-Verlage — Filter analog zu DE_MANGA_VERLAGE.
   var DE_MAGAZIN_VERLAGE = /bauer|heinrich\s*bauer|gruner\s*\+?\s*jahr|g\s*\+\s*j|burda|hubert\s*burda|axel\s*springer|springer|funke|spiegel[- ]?verlag|der\s*spiegel|zeit[- ]?verlag|die\s*zeit|cond[eé]\s*nast|egmont|ehapa|panini|klambt|motor[- ]?presse/i;
 
@@ -609,7 +609,7 @@
   function statusDates(existing, status, now) {
     var p = {};
     if (status === 'reading' && !(existing && existing.startedAt)) p.startedAt = now;
-    // v14: gelesen/abgebrochen → raus aus der „Als Nächstes"-Warteschlange,
+    // v3: gelesen/abgebrochen → raus aus der „Als Nächstes"-Warteschlange,
     // sonst müsste man jeden fertigen Titel von Hand austragen
     if ((status === 'read' || status === 'dnf') && existing && existing.tbrPos > 0) p.tbrPos = 0;
     if (status === 'read') {
@@ -766,7 +766,7 @@
     $('homeRecentSection').hidden = recent.length === 0;
     $('homeRecent').innerHTML = recent.map(function (b) { return cardHtml(b, { showStatus: true }); }).join('');
 
-    // v4: Erscheinungs-Radar — Wunschbücher, die erst in der Zukunft erscheinen
+    // v1.4: Erscheinungs-Radar — Wunschbücher, die erst in der Zukunft erscheinen
     var radarSec = $('homeRadarSection');
     if (radarSec) {
       var upcoming = books.filter(function (b) {
@@ -791,7 +791,7 @@
     }
   }
 
-  /* ══ v14-C: „Als Nächstes" — geordnete Lese-Warteschlange ══
+  /* ══ v3-C: „Als Nächstes" — geordnete Lese-Warteschlange ══
      wishPrio war nur ein Ja/Nein-Bit. Bei 800+ Bänden mit Serienlücken ist
      „welcher Band ist als Nächstes dran" die häufigste Frage — die beantwortet
      eine echte Reihenfolge (tbrPos) plus Auto-Vorschlag aus laufenden Reihen.
@@ -954,12 +954,12 @@
 
   // ───── Suche ─────
   var lastSearch = [];
-  var lastSimilar = [];    // v6: „Ähnliche finden"-Ergebnisse im Detail
-  var lastRelated = [];    // v14: AniList-Verwandtschaft (Spin-offs, Sequels, Empfehlungen)
+  var lastSimilar = [];    // v1.6: „Ähnliche finden"-Ergebnisse im Detail
+  var lastRelated = [];    // v3: AniList-Verwandtschaft (Spin-offs, Sequels, Empfehlungen)
   var searchMode = 'buch'; // 'buch' | 'manga' | 'magazin'
-  var pendingIssn = '';    // v13: per ISSN-Scan vorbefüllte Zeitschrift (für „Manuell erfassen")
+  var pendingIssn = '';    // v2.11: per ISSN-Scan vorbefüllte Zeitschrift (für „Manuell erfassen")
 
-  // v13: Konfiguration je Suchmodus (Untertitel, Platzhalter, Schnellfilter-Chips)
+  // v2.11: Konfiguration je Suchmodus (Untertitel, Platzhalter, Schnellfilter-Chips)
   var MODE_CFG = {
     buch: {
       sub: 'Titel, Autor·in oder ISBN — 3 Quellen parallel: Google Books · Open Library · Deutsche Nationalbibliothek',
@@ -981,7 +981,7 @@
     }
   };
 
-  // v13: Suchmodus setzen (Untertitel, Platzhalter, Chips, aktiver Mode-Chip) — von
+  // v2.11: Suchmodus setzen (Untertitel, Platzhalter, Chips, aktiver Mode-Chip) — von
   // Klick-Handler UND ISSN-Scan genutzt, damit beide Wege konsistent bleiben.
   function setSearchMode(mode) {
     if (!MODE_CFG[mode]) return;
@@ -1039,7 +1039,7 @@
     var vl = $('filterPublisher') ? $('filterPublisher').value : '';
     var lc = $('filterLoc') ? $('filterLoc').value : '';
 
-    // Verlags-Filter-Optionen (v5)
+    // Verlags-Filter-Optionen (v1.5)
     var pubs = {};
     books.forEach(function (b) { if (b.publisher) pubs[b.publisher] = 1; });
     var psel = $('filterPublisher'), pcur = psel ? psel.value : '';
@@ -1070,7 +1070,7 @@
     }).join('');
     tsel.style.display = Object.keys(tags).length ? '' : 'none';
 
-    // v14: Standort-Filter („Wo steht Band 42?") — nur zeigen wenn Standorte vergeben sind
+    // v3: Standort-Filter („Wo steht Band 42?") — nur zeigen wenn Standorte vergeben sind
     var locs = {};
     books.forEach(function (b) { if (b.loc) locs[b.loc] = (locs[b.loc] || 0) + 1; });
     var lsel = $('filterLoc'), lcur = lsel ? lsel.value : '';
@@ -1085,7 +1085,7 @@
       lsel.style.display = (Object.keys(locs).length || lentCount) ? '' : 'none';
     }
 
-    // v4: Live-Suche in der eigenen Sammlung (Titel, Autor·in, Notizen, Zitate, Tags)
+    // v1.4: Live-Suche in der eigenen Sammlung (Titel, Autor·in, Notizen, Zitate, Tags)
     var q = ($('libSearch') ? $('libSearch').value : '').trim().toLowerCase();
     var out = books.filter(function (b) {
       if (st && b.status !== st) return false;
@@ -1116,7 +1116,7 @@
       return (b.addedAt || 0) - (a.addedAt || 0);
     });
 
-    // v10: Serien-Ansicht — Bände einer Reihe zu einer Kachel zusammenfassen
+    // v2.2: Serien-Ansicht — Bände einer Reihe zu einer Kachel zusammenfassen
     var items = out, isSeries = false;
     if (libViewMode === 'series') {
       items = groupIntoSeries(out);
@@ -1147,7 +1147,7 @@
     $('emptyLib').hidden = books.length > 0;
   }
 
-  // v10: Reihen bilden. Bücher mit erkannter Serie → Gruppe; alles andere bleibt als Einzeltitel.
+  // v2.2: Reihen bilden. Bücher mit erkannter Serie → Gruppe; alles andere bleibt als Einzeltitel.
   function groupIntoSeries(list) {
     var groups = Object.create(null), order = [];
     var singles = [];
@@ -1233,7 +1233,7 @@
     }, { rootMargin: '700px 0px' });
   }
 
-  // ───── v7: Duplikat-Erkennung & -Verwaltung ─────
+  // ───── v1.7: Duplikat-Erkennung & -Verwaltung ─────
   // Verschiedene Apps schreiben denselben Titel unterschiedlich:
   //   „Naruto, Vol. 5" / „Naruto Band 5" / „Naruto 5"  → alle ergeben „naruto 5"
   //   „Kishimoto, Masashi" / „Masashi Kishimoto"       → beide ergeben „kishimoto masashi"
@@ -1384,7 +1384,7 @@
     render();
   }
 
-  // ───── v7: Fehlende Cover automatisch nachladen ─────
+  // ───── v1.7: Fehlende Cover automatisch nachladen ─────
   var coverAbort = false;
   // Prüft per Bild-Ladung, ob ein Cover unter der URL existiert (kein CORS-Problem bei <img>)
   function coverExists(url) {
@@ -1445,7 +1445,7 @@
           if (doc) return 'https://covers.openlibrary.org/b/id/' + doc.cover_i + '-M.jpg';
           // Google Books als letzter Versuch (erkennt auch japanische/englische Titel)
           var gq = isbn.length >= 10 ? ('isbn:' + isbn) : q;
-          // v14.2: ebenfalls über die Google-Schleuse — der Cover-Nachlader läuft
+          // v3.2: ebenfalls über die Google-Schleuse — der Cover-Nachlader läuft
           // sonst bei jedem Titel ins selbe Kontingent-Limit
           return gbFetch(GB + '?q=' + encodeURIComponent(gq) + '&maxResults=3&printType=books')
             .then(function (j2) {
@@ -1486,7 +1486,7 @@
     return findBookCover(b);
   }
 
-  // ───── v13.3: Rate-limitierte Cover-Suche pro SERIE (behebt die 429-Sturm-Ursache) ─────
+  // ───── v2.14: Rate-limitierte Cover-Suche pro SERIE (behebt die 429-Sturm-Ursache) ─────
   // AniList erlaubt ~90 Anfragen/Minute. Bei 800 Bänden parallel → 429-Sturm → nur ~25 % Treffer.
   // Da AniList/MAL pro SERIE ein Cover haben, fragen wir nur EINMAL pro Serie — gedrosselt + mit Retry.
   var _snLast = 0, _snQueue = Promise.resolve();
@@ -1579,7 +1579,7 @@
     if (changed) saveBooks(all);
   }
 
-  // v13.3: Cover-Nachlader gruppiert nach SERIE → nur EINE Suche pro Serie (statt pro Band),
+  // v2.14: Cover-Nachlader gruppiert nach SERIE → nur EINE Suche pro Serie (statt pro Band),
   // gedrosselt + mit 429-Retry + persistentem Serien-Cache. Behebt die niedrige Trefferquote bei großen Manga-Sammlungen.
   function reloadMissingCovers() {
     var missing = lib().filter(function (b) { return !b.cover && (b.isbn || b.title); });
@@ -1751,7 +1751,7 @@
       queries.push({ q: t, reason: 'Ähnlich wie „' + books[0].title + '"' });
     }
 
-    /* v14.2: Nicht mehr ALLE Anfragen auf einmal. Jede Query fächert intern in
+    /* v3.2: Nicht mehr ALLE Anfragen auf einmal. Jede Query fächert intern in
        3 Quellen auf — bei 7 Queries waren das über 40 gleichzeitige Anfragen,
        von denen Google Books praktisch alle mit 429 ablehnte. Mit begrenzter
        Gleichzeitigkeit bleibt die Last niedrig, ohne dass es spürbar länger dauert
@@ -1827,10 +1827,10 @@
     var rated = books.filter(function (b) { return b.rating > 0; });
     var avg = rated.length ? (rated.reduce(function (s, b) { return s + b.rating; }, 0) / rated.length).toFixed(1) : '–';
 
-    // v4: Lesezeit (Timer-Sessions) + geschätzter Bibliotheks-Wert + Streak
+    // v1.4: Lesezeit (Timer-Sessions) + geschätzter Bibliotheks-Wert + Streak
     var mins = loadSessions().reduce(function (s, x) { return s + (x.minutes || 0); }, 0);
     var aStats = achStats();
-    // v14: Bibliotheks-Wert aus ECHTEN Preisen, wo erfasst — der Rest wird geschätzt.
+    // v3: Bibliotheks-Wert aus ECHTEN Preisen, wo erfasst — der Rest wird geschätzt.
     // Der Schätzwert richtet sich nach dem eigenen Ø-Preis (Manga ≠ Hardcover), sonst 12 €.
     var priced = books.filter(function (b) { return b.price > 0; });
     var realSum = priced.reduce(function (s, b) { return s + b.price; }, 0);
@@ -1851,7 +1851,7 @@
       var keys = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; }).slice(0, 7);
       if (!keys.length) return '';
       var max = counts[keys[0]] || 1;
-      // Ohne Titel keine leere Überschrift rendern (v14: Balken unter einer eigenen h2)
+      // Ohne Titel keine leere Überschrift rendern (v3: Balken unter einer eigenen h2)
       return (title ? '<h2 style="font-size:16px;margin-top:22px">' + title + '</h2>' : '') + '<div class="bar-list">'
         + keys.map(function (k) {
           return '<div class="bar-row"><span class="lbl">' + esc(k) + '</span><span class="bar"><i style="width:' + Math.round(counts[k] / max * 100) + '%"></i></span><span class="val">' + counts[k] + '</span></div>';
@@ -1924,7 +1924,7 @@
       return '<h2 style="font-size:16px;margin-top:22px">📚 Deine Buchreihen</h2>' + rows;
     }
 
-    // v4: Erfolge-Galerie
+    // v1.4: Erfolge-Galerie
     function achHtml() {
       var unlocked = loadAch();
       var cells = ACH_DEFS.map(function (d) {
@@ -1938,7 +1938,7 @@
       return '<h2 style="font-size:16px;margin-top:22px">🏆 Erfolge</h2><div class="ach-grid">' + cells + '</div>';
     }
 
-    // ── v14-D: Lese-Tempo aus den Timer-Sessions ──
+    // ── v3-D: Lese-Tempo aus den Timer-Sessions ──
     function paceHtml() {
       var p = paceStats();
       if (!p.sessions) return '';
@@ -1974,7 +1974,7 @@
         + '<div class="pace-hours-lbl"><span>0</span><span>6</span><span>12</span><span>18</span><span>23</span></div>';
     }
 
-    // ── v14-B: Ausgaben (echte Preise statt Schätzung) ──
+    // ── v3-B: Ausgaben (echte Preise statt Schätzung) ──
     function moneyHtml() {
       var withPrice = books.filter(function (b) { return b.price > 0; });
       if (!withPrice.length) {
@@ -2009,7 +2009,7 @@
         + barBlock('🗓️ Ausgaben pro Jahr (€)', yearRows);
     }
 
-    // ── v14-A: Regal-Plan — wo steht was, was ist verliehen ──
+    // ── v3-A: Regal-Plan — wo steht was, was ist verliehen ──
     function locHtml() {
       var locs = {}, lent = [];
       books.forEach(function (b) {
@@ -2032,7 +2032,7 @@
         + (lent.length ? '<p class="section-sub" style="margin-top:12px">🤝 Verliehen (' + lent.length + ')</p>' + lentRows : '');
     }
 
-    // ── v14-E: DNF-Auswertung — halbfertiges Feature endlich ausgewertet ──
+    // ── v3-E: DNF-Auswertung — halbfertiges Feature endlich ausgewertet ──
     function dnfStatsHtml() {
       var dnf = books.filter(function (b) { return b.status === 'dnf'; });
       var finished = books.filter(function (b) { return b.status === 'read'; }).length;
@@ -2064,7 +2064,7 @@
     if (ydb) ydb.addEventListener('click', openYearDuel);
   }
 
-  // v6: Fertig-Prognose für „Lese gerade" — aus Timer-Tempo oder Seiten/Tag seit Start
+  // v1.6: Fertig-Prognose für „Lese gerade" — aus Timer-Tempo oder Seiten/Tag seit Start
   function forecastHtml(own) {
     if (!own || own.status !== 'reading' || !(own.pages > 0)) return '';
     var page = own.progress || 0;
@@ -2127,7 +2127,7 @@
       + '</div>';
   }
 
-  // v7: Lesetagebuch — datierte Fortschritts-/Gedanken-Einträge pro Buch
+  // v1.7: Lesetagebuch — datierte Fortschritts-/Gedanken-Einträge pro Buch
   function journalHtml(own) {
     var js = (own.journal || []).slice().sort(function (a, b) { return b.date - a.date; });
     return '<div class="journal-block">'
@@ -2146,7 +2146,7 @@
       + '</div>';
   }
 
-  // v7: Zitat als schöne Bild-Karte exportieren (Canvas)
+  // v1.7: Zitat als schöne Bild-Karte exportieren (Canvas)
   function exportQuoteImage(text, title, author) {
     var W = 1080, H = 1080;
     var c = document.createElement('canvas'); c.width = W; c.height = H;
@@ -2182,7 +2182,7 @@
   }
 
   /* ══════════════════════════════════════════════════════════════
-     v14: Sammler-Funktionen — Besitz, Verleih, Ausgaben, DNF, Tempo
+     v3: Sammler-Funktionen — Besitz, Verleih, Ausgaben, DNF, Tempo
      Alle neuen Felder hängen am Buch-Objekt → landen automatisch in
      bk_books und damit im Delta-Sync (collectData nimmt alle bk_-Keys).
      ══════════════════════════════════════════════════════════════ */
@@ -2265,7 +2265,7 @@
       + '</div>';
   }
 
-  // ── Lese-Tempo aus den Timer-Sessions (v14-D) ──
+  // ── Lese-Tempo aus den Timer-Sessions (v3-D) ──
   // Liefert Seiten/Stunde gesamt und je Schnitt (Format, Typ) + Sitzungs-Kennzahlen.
   function paceStats() {
     var sess = loadSessions();
@@ -2305,7 +2305,7 @@
     };
   }
 
-  // ── Tsundoku-Bilanz: ungelesener Stapel in Seiten/Zeit/Geld (v14-C) ──
+  // ── Tsundoku-Bilanz: ungelesener Stapel in Seiten/Zeit/Geld (v3-C) ──
   function tsundoku() {
     var want = lib().filter(function (b) { return b.status === 'want'; });
     var pages = want.reduce(function (s, b) { return s + (b.pages || 0); }, 0);
@@ -2362,7 +2362,7 @@
       if (s === 'dnf' && !own) return '';
       return '<button class="status-btn' + (on ? ' active ' + s : '') + '" data-status="' + s + '">' + STATUS_LBL[s] + '</button>';
     }).join('');
-    // v4: kontextabhängige Aktionen
+    // v1.4: kontextabhängige Aktionen
     if (own && own.status === 'reading') {
       var act = activeSess();
       statusRow += (act && act.bookId === b.id)
@@ -2376,7 +2376,7 @@
     if (own && own.status === 'want') {
       statusRow += '<button class="status-btn' + (own.wishPrio ? ' active' : '') + '" data-prio="1">' + (own.wishPrio ? '⭐ Hohe Priorität' : '☆ Priorität setzen') + '</button>';
     }
-    // v14: in die „Als Nächstes"-Warteschlange (für alles Ungelesene sinnvoll)
+    // v3: in die „Als Nächstes"-Warteschlange (für alles Ungelesene sinnvoll)
     if (own && own.status !== 'read') {
       statusRow += '<button class="status-btn' + (own.tbrPos > 0 ? ' active' : '') + '" data-tbrtoggle="1">'
         + (own.tbrPos > 0 ? '📋 Platz ' + own.tbrPos + ' — entfernen' : '📋 Als Nächstes') + '</button>';
@@ -2418,7 +2418,7 @@
       + '<div class="detail-body">'
       + (b.desc ? '<h3>Beschreibung</h3><div class="desc">' + esc(b.desc.replace(/<[^>]+>/g, ' ')).slice(0, 2200) + '</div>' : '<p class="muted" style="margin-top:14px">Keine Beschreibung verfügbar.</p>')
       + '<div class="similar-block"><button class="btn-ghost" id="similarBtn">🔗 Ähnliche ' + (b.kind === 'manga' ? 'Mangas' : 'Bücher') + ' finden</button><div id="similarGrid" class="grid" style="margin-top:12px"></div></div>'
-      // v14: Verwandte Werke — findet Spin-offs/Sequels, die das Titel-Parsing nicht erkennt
+      // v3: Verwandte Werke — findet Spin-offs/Sequels, die das Titel-Parsing nicht erkennt
       + (b.kind === 'manga'
         ? '<div class="similar-block"><button class="btn-ghost" id="relBtn">🧬 Gehört dazu (Spin-offs &amp; Fortsetzungen)</button><div id="relBox" style="margin-top:12px"></div></div>'
         : '')
@@ -2433,7 +2433,7 @@
         var s = btn.dataset.status;
         upsertBook(b, s);
         if (s === 'dnf') {
-          // v14: Grund wird jetzt unten per Chips erfasst (auswertbar) — kein prompt() mehr,
+          // v3: Grund wird jetzt unten per Chips erfasst (auswertbar) — kein prompt() mehr,
           // das auf iOS-PWA ohnehin unschön ist. Seite beim Abbruch aus dem Fortschritt vorbelegen.
           var c0 = findInLib(b.id) || {};
           if (!c0.dnfPage && c0.progress > 0) patchBook(b.id, { dnfPage: c0.progress });
@@ -2444,7 +2444,7 @@
         openDetail(b); // neu rendern (zeigt jetzt Sterne/Notiz)
       });
     });
-    // v6: Format
+    // v1.6: Format
     inner.querySelectorAll('.format-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var cur = findInLib(b.id);
@@ -2459,7 +2459,7 @@
       toast('Aus der Sammlung entfernt');
       closeDetail();
     });
-    // v4: Timer / Re-Read / Priorität
+    // v1.4: Timer / Re-Read / Priorität
     var ts = inner.querySelector('[data-timer]');
     if (ts) ts.addEventListener('click', function () {
       if (ts.dataset.timer === 'stop') stopSession(); else startSession(b.id);
@@ -2474,7 +2474,7 @@
       checkAchievements();
       openDetail(b);
     });
-    // v14: Warteschlangen-Schalter
+    // v3: Warteschlangen-Schalter
     var tq = inner.querySelector('[data-tbrtoggle]');
     if (tq) tq.addEventListener('click', function () {
       var cur = findInLib(b.id) || {};
@@ -2500,7 +2500,7 @@
     var na = inner.querySelector('#noteArea');
     if (na) na.addEventListener('change', function () { patchBook(b.id, { note: na.value }); toast('Notiz gespeichert ✓'); });
 
-    // v14: Besitz — Standort, Verleih, Preis, Kaufdatum
+    // v3: Besitz — Standort, Verleih, Preis, Kaufdatum
     var locIn = inner.querySelector('#ownLoc');
     if (locIn) locIn.addEventListener('change', function () {
       patchBook(b.id, { loc: locIn.value.trim().slice(0, 60) });
@@ -2528,7 +2528,7 @@
       toast(t ? '🗓️ Kaufdatum gespeichert ✓' : 'Kaufdatum entfernt');
     });
 
-    // v14: DNF-Gründe (Chips zum Umschalten) + Seite + Freitext
+    // v3: DNF-Gründe (Chips zum Umschalten) + Seite + Freitext
     inner.querySelectorAll('[data-dnftag]').forEach(function (ch) {
       ch.addEventListener('click', function () {
         var cur = findInLib(b.id) || {};
@@ -2552,7 +2552,7 @@
       toast('Gespeichert ✓');
     });
 
-    // v11.3: Cover für DIESEN Titel online nachladen (falls der Batch-Nachlader es nicht schaffte)
+    // v2.6: Cover für DIESEN Titel online nachladen (falls der Batch-Nachlader es nicht schaffte)
     var clBtn = inner.querySelector('#coverLoadBtn');
     if (clBtn) clBtn.addEventListener('click', function () {
       clBtn.disabled = true; clBtn.textContent = '🔎 Suche Cover…';
@@ -2570,7 +2570,7 @@
       });
     });
 
-    // v14: Verwandte Werke via AniList (Sequel/Prequel/Spin-off + Empfehlungen)
+    // v3: Verwandte Werke via AniList (Sequel/Prequel/Spin-off + Empfehlungen)
     var relBtn = inner.querySelector('#relBtn');
     if (relBtn) relBtn.addEventListener('click', function () {
       var box = inner.querySelector('#relBox');
@@ -2600,7 +2600,7 @@
       });
     });
 
-    // v6: „Ähnliche finden" — quellenbasiert per Autor·in bzw. Genre
+    // v1.6: „Ähnliche finden" — quellenbasiert per Autor·in bzw. Genre
     var simBtn = inner.querySelector('#similarBtn');
     if (simBtn) simBtn.addEventListener('click', function () {
       var grid = inner.querySelector('#similarGrid');
@@ -2666,7 +2666,7 @@
         openDetail(b);
       });
     });
-    // v7: Zitat als Bild teilen
+    // v1.7: Zitat als Bild teilen
     inner.querySelectorAll('.quote-img').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var cur = findInLib(b.id);
@@ -2675,7 +2675,7 @@
       });
     });
 
-    // v7: Lesetagebuch
+    // v1.7: Lesetagebuch
     var ja = inner.querySelector('#journalAddBtn');
     if (ja) ja.addEventListener('click', function () {
       var pageEl = inner.querySelector('#journalPage'), txtEl = inner.querySelector('#journalText');
@@ -2741,7 +2741,7 @@
     if (b) openDetail(findInLib(id) || b);
   });
 
-  // ───── v10: Serien-Detail (Bände-Übersicht + fehlende Bände) ─────
+  // ───── v2.2: Serien-Detail (Bände-Übersicht + fehlende Bände) ─────
   function openSeriesModal(key) {
     var members = lib().filter(function (b) { var s = seriesOf(b); return s && b.kind === 'manga' && normTitleKey(s.name) === key; });
     if (!members.length) return;
@@ -2781,7 +2781,7 @@
     });
   }
 
-  // ───── v10: Mehrfachauswahl & Bulk-Aktionen ─────
+  // ───── v2.2: Mehrfachauswahl & Bulk-Aktionen ─────
   var selectMode = false, selectedIds = Object.create(null), selectedCount = 0;
   function markSelectedCards() {
     document.querySelectorAll('#libGrid .card.selectable').forEach(function (c) {
@@ -2819,7 +2819,7 @@
       + '<button class="bulk-act" data-bulk="read">✓ Gelesen</button>'
       + '<button class="bulk-act" data-bulk="want">🔖 Will lesen</button>'
       + '<button class="bulk-act" data-bulk="tag">🏷️ Tag</button>'
-      // v14: Standort + Preis nur per Bulk realistisch — 800 Bände einzeln wäre niemandem zumutbar
+      // v3: Standort + Preis nur per Bulk realistisch — 800 Bände einzeln wäre niemandem zumutbar
       + '<button class="bulk-act" data-bulk="loc">📍 Standort</button>'
       + '<button class="bulk-act" data-bulk="price">💰 Preis</button>'
       + '<button class="bulk-act danger" data-bulk="delete">🗑️</button>';
@@ -2854,7 +2854,7 @@
       toast('🏷️ „' + tag + '" zu ' + ids.length + ' Titeln hinzugefügt');
       exitSelectMode();
     } else if (action === 'loc') {
-      // v14: Standort für viele Bände auf einmal — der einzig realistische Weg bei großen Reihen
+      // v3: Standort für viele Bände auf einmal — der einzig realistische Weg bei großen Reihen
       var known = Object.keys(allLocations()).sort();
       var loc = window.prompt('Standort für ' + ids.length + ' Titel'
         + (known.length ? '\n(bisher genutzt: ' + known.slice(0, 8).join(', ') + ')' : '')
@@ -3079,7 +3079,7 @@
     if (m) m.remove();
   }
 
-  // v13: ISSN aus einem EAN-13-Zeitschriften-Barcode (Präfix 977) ableiten.
+  // v2.11: ISSN aus einem EAN-13-Zeitschriften-Barcode (Präfix 977) ableiten.
   // Stellen 4–10 = ISSN-Basis (7 Ziffern); die ISSN-Prüfziffer wird NEU berechnet
   // (Modulo 11, Gewichte 8..2) — die EAN-Prüfziffer passt nicht zur ISSN.
   function issnFromEan(ean) {
@@ -3091,7 +3091,7 @@
     return base.slice(0, 4) + '-' + base.slice(4) + (chk === 10 ? 'X' : String(chk));
   }
 
-  // v13: Zentraler Scan-Handler. EAN-13 mit Präfix 977 = Zeitschrift (ISSN),
+  // v2.11: Zentraler Scan-Handler. EAN-13 mit Präfix 977 = Zeitschrift (ISSN),
   // sonst normale ISBN (Buch/Manga wie bisher).
   function onCodeScanned(raw) {
     var digits = String(raw || '').replace(/[^0-9Xx]/g, '');
@@ -3102,7 +3102,7 @@
     onIsbnScanned(digits);
   }
 
-  // v13: Gescannte Zeitschrift. In den Magazin-Modus wechseln, ISSN als Suchbegriff
+  // v2.11: Gescannte Zeitschrift. In den Magazin-Modus wechseln, ISSN als Suchbegriff
   // setzen und eine Best-Effort-Suche starten. Die ISSN bleibt für „Manuell erfassen"
   // vorbefüllt (pendingIssn) — so geht das Anlegen IMMER, auch ohne Treffer.
   function onIssnScanned(issn) {
@@ -3226,7 +3226,7 @@
     });
   }
 
-  // ───── v6: Stimmungs-Picker „Worauf hast du Lust?" ─────
+  // ───── v1.6: Stimmungs-Picker „Worauf hast du Lust?" ─────
   // Ordnet Genres/Seitenzahl einer Stimmung zu und schlägt passende Bücher aus der Sammlung vor
   // (bevorzugt ungelesene: „will lesen"/„lese gerade").
   var MOOD_GENRES = {
@@ -3263,7 +3263,7 @@
     res.innerHTML = scored.slice(0, 6).map(function (x) { return cardHtml(x.b, { showStatus: true }); }).join('');
   }
 
-  // ───── v6: Buch/Manga manuell erfassen (wenn in keiner Quelle) ─────
+  // ───── v1.6: Buch/Manga manuell erfassen (wenn in keiner Quelle) ─────
   function openManualForm() {
     var m = document.createElement('div');
     m.className = 'manual-modal';
@@ -3296,7 +3296,7 @@
         : kindSel.value === 'manga' ? '🎌 Manga erfassen' : '✍️ Eigenes Buch erfassen';
     }
     kindSel.addEventListener('change', syncKindFields);
-    // v13: Aus dem Magazin-Modus oder nach einem ISSN-Scan direkt als Zeitschrift vorbelegen
+    // v2.11: Aus dem Magazin-Modus oder nach einem ISSN-Scan direkt als Zeitschrift vorbelegen
     if (searchMode === 'magazin' || pendingIssn) {
       kindSel.value = 'magazin';
       if (pendingIssn) { issnEl.value = pendingIssn; pendingIssn = ''; }
@@ -3367,9 +3367,9 @@
     m.addEventListener('click', function () { clearInterval(iv); m.remove(); });
   }
 
-  // ───── v4: Lese-Timer ─────
+  // ───── v1.4: Lese-Timer ─────
   var timerTick = null, wakeLock = null;
-  // v6: Bildschirm während der Lese-Session anlassen (Screen Wake Lock, wo verfügbar)
+  // v1.6: Bildschirm während der Lese-Session anlassen (Screen Wake Lock, wo verfügbar)
   function acquireWakeLock() {
     if (!('wakeLock' in navigator)) return;
     try {
@@ -3445,7 +3445,7 @@
     }, 1000);
   }
 
-  // ───── v4: Erfolge / Abzeichen ─────
+  // ───── v1.4: Erfolge / Abzeichen ─────
   var ACH_DEFS = [
     { id: 'b1', icon: '📕', name: 'Erstes Buch', desc: 'Dein erstes Buch gelesen' },
     { id: 'b10', icon: '📗', name: 'Bücherwurm', desc: '10 Bücher gelesen' },
@@ -3519,8 +3519,8 @@
     return unlocked;
   }
 
-  // ───── v4: Jahresrückblick ─────
-  /* ── v14-F: Jahres-Duell — zwei Jahre direkt nebeneinander ──
+  // ───── v1.4: Jahresrückblick ─────
+  /* ── v3-F: Jahres-Duell — zwei Jahre direkt nebeneinander ──
      Der Jahresrückblick ist ein Dezember-Erlebnis; der Vergleich ist ganzjährig
      interessant („bin ich schneller als letztes Jahr?"). Nutzt nur readDates. */
   function yearFacts(yr) {
@@ -3715,7 +3715,7 @@
     });
   }
 
-  // ───── v4: Sammlung teilen (Read-only-Link) ─────
+  // ───── v1.4: Sammlung teilen (Read-only-Link) ─────
   function createShareLink() {
     var t = null;
     try { t = localStorage.getItem('bk_cloud_token'); } catch (e) {}
@@ -3762,7 +3762,7 @@
     });
   }
 
-  // ───── v4: Lese-Erinnerung (lokale Benachrichtigung) ─────
+  // ───── v1.4: Lese-Erinnerung (lokale Benachrichtigung) ─────
   function reminderDue() {
     var s = loadSettings();
     if (!s.reminder || !('Notification' in window) || Notification.permission !== 'granted') return false;
@@ -3789,7 +3789,7 @@
   var sysDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   function themeMode() {
     var s = loadSettings();
-    return s.themeMode || s.theme || 'dark'; // s.theme = Altbestand aus v1/v2
+    return s.themeMode || s.theme || 'dark'; // s.theme = Altbestand aus v1/v1.1
   }
   function applySettings() {
     var s = loadSettings();
@@ -3872,7 +3872,7 @@
       doSearch(c.dataset.q);
     });
 
-    // v13: Suchmodus Bücher ↔ Mangas ↔ Zeitschriften (Quellen + Schnellfilter wechseln mit)
+    // v2.11: Suchmodus Bücher ↔ Mangas ↔ Zeitschriften (Quellen + Schnellfilter wechseln mit)
     $('searchModeRow').addEventListener('click', function (e) {
       var mc = e.target.closest('.mode-chip'); if (!mc || mc.dataset.mode === searchMode) return;
       setSearchMode(mc.dataset.mode);
@@ -3888,27 +3888,27 @@
     $('exportBtn').addEventListener('click', exportJson);
     $('dupBtn').addEventListener('click', openDupModal);
 
-    // v10: Ansicht Einzeln ↔ Serien
+    // v2.2: Ansicht Einzeln ↔ Serien
     $('viewToggle').addEventListener('click', function (e) {
       var b = e.target.closest('.vt-btn'); if (!b) return;
       libViewMode = b.dataset.view;
       document.querySelectorAll('#viewToggle .vt-btn').forEach(function (x) { x.classList.toggle('active', x === b); });
       renderLib();
     });
-    // v10: Mehrfachauswahl
+    // v2.2: Mehrfachauswahl
     $('selectBtn').addEventListener('click', function () { if (selectMode) exitSelectMode(); else enterSelectMode(); });
 
     // Empfehlungen
     $('recoRefresh').addEventListener('click', function () { renderReco(true); });
 
-    // v6: Stimmungs-Picker
+    // v1.6: Stimmungs-Picker
     $('moodChips').addEventListener('click', function (e) {
       var c = e.target.closest('.chip'); if (!c) return;
       document.querySelectorAll('#moodChips .chip').forEach(function (x) { x.classList.toggle('active', x === c); });
       pickByMood(c.dataset.mood);
     });
 
-    // v6: Manuell erfassen
+    // v1.6: Manuell erfassen
     $('manualEmptyBtn').addEventListener('click', openManualForm);
     $('manualBtn').addEventListener('click', openManualForm);
 
@@ -3970,14 +3970,14 @@
       libSearchTimer = setTimeout(renderLib, 180);
     });
 
-    // v4: laufende Lese-Session wiederherstellen + Erfolge prüfen
+    // v1.4: laufende Lese-Session wiederherstellen + Erfolge prüfen
     renderTimerBar();
     setTimeout(checkAchievements, 1500);
 
-    // v4: Sammlung teilen
+    // v1.4: Sammlung teilen
     $('setShare').addEventListener('click', createShareLink);
 
-    // v4: Lese-Erinnerung
+    // v1.4: Lese-Erinnerung
     var sR = loadSettings();
     $('setReminder').checked = !!sR.reminder;
     if (sR.reminderTime) $('setReminderTime').value = sR.reminderTime;
@@ -3999,7 +3999,7 @@
     setInterval(fireReminder, 60000);
     setTimeout(fireReminder, 4000);
 
-    // v4: Geteilte Sammlung öffnen (?share=…)
+    // v1.4: Geteilte Sammlung öffnen (?share=…)
     var shareId = null;
     try { shareId = new URLSearchParams(location.search).get('share'); } catch (e) {}
     if (shareId) enterSharedMode(shareId);
@@ -4012,7 +4012,7 @@
     });
     $('setGrExport').addEventListener('click', exportGoodreadsCsv);
 
-    // v7: Aufräumen — Duplikate, Cover, DB-Reset
+    // v1.7: Aufräumen — Duplikate, Cover, DB-Reset
     $('setDup').addEventListener('click', openDupModal);
     $('setCovers').addEventListener('click', reloadMissingCovers);
     $('setReset').addEventListener('click', openResetModal);

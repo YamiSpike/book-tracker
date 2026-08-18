@@ -1,5 +1,5 @@
 /* ============================================================
-   Hon 本 · Bücher Tracker — Persistenz-Speicher (v8)
+   Hon 本 · Bücher Tracker — Persistenz-Speicher (v2)
    Bücher liegen in IndexedDB statt localStorage:
      - localStorage ist auf ~5 MB begrenzt → bei ~10.000 Titeln voll.
      - IndexedDB fasst Hunderte MB → große Sammlungen laufen stabil.

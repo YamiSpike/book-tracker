@@ -490,7 +490,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 .rate-row .star.on { animation: starPing .35s cubic-bezier(.22,1,.36,1); text-shadow: 0 0 12px rgba(245,201,107,.55); }
 @keyframes starPing { 45% { transform: scale(1.35) rotate(8deg); } }
 
-/* ───── v3: Challenge-Ring im Hero ───── */
+/* ───── v1.2: Challenge-Ring im Hero ───── */
 .hero-flex { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .hero-main { min-width: 0; flex: 1; }
 .challenge-ring { position: relative; width: 96px; text-align: center; flex-shrink: 0; }
@@ -510,7 +510,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 .challenge-ring .ring-lbl { font-size: 10px; opacity: .75; margin-top: 2px; }
 .ring-set { align-self: center; }
 
-/* ───── v3: Zitat des Tages ───── */
+/* ───── v1.2: Zitat des Tages ───── */
 .home-quote {
   position: relative; border-radius: var(--radius);
   padding: 18px 20px 14px 46px; margin-bottom: 16px;
@@ -523,7 +523,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 }
 .home-quote .quote-src { font-family: var(--font-ui); font-style: normal; font-size: 11.5px; color: var(--text-dim); margin-top: 8px; }
 
-/* ───── v3: Fortschritt auf Karte + im Detail ───── */
+/* ───── v1.2: Fortschritt auf Karte + im Detail ───── */
 .card-progress {
   position: relative; height: 14px; border-radius: 7px; margin-top: 6px;
   background: var(--bg-soft); border: 1px solid var(--border); overflow: hidden;
@@ -550,7 +550,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 }
 .tags-edit input:focus { border-color: var(--accent); }
 
-/* ───── v3: Zitate im Detail ───── */
+/* ───── v1.2: Zitate im Detail ───── */
 .quotes-block { padding: 12px 18px 0; }
 .quotes-head { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
 .quote-item {
@@ -573,7 +573,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 }
 .quote-add textarea:focus { border-color: var(--accent); }
 
-/* ───── v3: Barcode-Scanner ───── */
+/* ───── v1.2: Barcode-Scanner ───── */
 .scan-btn { border-color: var(--border); background: var(--bg-soft); color: var(--text); flex-shrink: 0; height: auto; }
 .scan-modal {
   position: fixed; inset: 0; z-index: 100030;
@@ -603,7 +603,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 .scan-manual input:focus { border-color: var(--accent); }
 .scan-manual .btn-primary { padding: 10px 16px; }
 
-/* ───── v3: Cover-Roulette ───── */
+/* ───── v1.2: Cover-Roulette ───── */
 .roll-modal {
   position: fixed; inset: 0; z-index: 100030;
   background: rgba(8,5,3,.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
@@ -617,7 +617,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 @keyframes rollWin { 0% { transform: scale(.92); } 55% { transform: scale(1.12) rotate(2deg); } 100% { transform: scale(1); } }
 .roll-name { color: #f5c96b; font-weight: 800; font-size: 15px; margin-top: 12px; max-width: 280px; }
 
-/* ───── v3: Heatmap + Reihen ───── */
+/* ───── v1.2: Heatmap + Reihen ───── */
 .heatmap-wrap { overflow-x: auto; padding-bottom: 4px; }
 .heatmap {
   display: grid; grid-template-rows: repeat(7, 11px); grid-auto-flow: column;
@@ -637,7 +637,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 .series-missing { color: var(--danger); font-weight: 700; font-size: 11.5px; }
 .series-full { color: var(--good); font-weight: 700; font-size: 11.5px; }
 
-/* ───── v4: Lese-Timer-Leiste ───── */
+/* ───── v1.4: Lese-Timer-Leiste ───── */
 .timer-bar {
   position: fixed; left: 50%; transform: translateX(-50%);
   bottom: calc(64px + env(safe-area-inset-bottom) + 8px); z-index: 65;
@@ -662,7 +662,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 }
 .timer-bar .timer-stop:active { transform: scale(.96); }
 
-/* ───── v4: Erfolge ───── */
+/* ───── v1.4: Erfolge ───── */
 .ach-grid { display: grid; gap: 9px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 .ach {
   display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center;
@@ -680,7 +680,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 .ach-name { font-size: 11px; font-weight: 800; }
 .ach-date { font-size: 9.5px; color: var(--muted); }
 
-/* ───── v4: Jahresrückblick ───── */
+/* ───── v1.4: Jahresrückblick ───── */
 .year-modal {
   position: fixed; inset: 0; z-index: 100030;
   background: rgba(8,5,3,.85); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
@@ -702,7 +702,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 .year-foot { margin-top: 14px; font-size: 10px; color: #82715c; letter-spacing: .5px; }
 .year-btns { display: flex; gap: 8px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
 
-/* ───── v4: Geteilte Sammlung (Read-only-Banner) ───── */
+/* ───── v1.4: Geteilte Sammlung (Read-only-Banner) ───── */
 .share-banner {
   position: sticky; top: 56px; z-index: 25;
   display: flex; align-items: center; gap: 8px; justify-content: center;
@@ -711,11 +711,11 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
   padding: 8px 14px; font-size: 12px; font-weight: 700; color: var(--accent);
 }
 
-/* ───── v6: DNF-Status-Chip ───── */
+/* ───── v1.6: DNF-Status-Chip ───── */
 .card .status-chip.dnf { color: #e5695e; border-color: rgba(229,105,94,.45); }
 .status-btn.active.dnf { border-color: var(--danger); color: var(--danger); background: rgba(229,105,94,.1); }
 
-/* ───── v6: Fertig-Prognose ───── */
+/* ───── v1.6: Fertig-Prognose ───── */
 .forecast {
   margin: 10px 18px 0; padding: 10px 12px; border-radius: 10px;
   background: linear-gradient(135deg, rgba(245,201,107,.1), rgba(217,119,6,.08));
@@ -723,7 +723,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 }
 .forecast b { color: var(--accent); }
 
-/* ───── v6: Format-Auswahl ───── */
+/* ───── v1.6: Format-Auswahl ───── */
 .format-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 18px 0; }
 .format-lbl { font-size: 12.5px; color: var(--text-dim); font-weight: 600; }
 .format-btn {
@@ -734,15 +734,15 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 .format-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(245,201,107,.1); }
 .format-btn:active { transform: scale(.96); }
 
-/* ───── v6: Ähnliche Bücher ───── */
+/* ───── v1.6: Ähnliche Bücher ───── */
 .similar-block { margin-top: 18px; }
 .similar-block .btn-ghost { width: 100%; }
 
-/* ───── v6: Stimmungs-Picker ───── */
+/* ───── v1.6: Stimmungs-Picker ───── */
 .mood-block { margin-bottom: 20px; }
 #moodResult:empty { display: none; }
 
-/* ───── v6: Manuell-Erfassen-Formular ───── */
+/* ───── v1.6: Manuell-Erfassen-Formular ───── */
 .manual-modal {
   position: fixed; inset: 0; z-index: 100030;
   background: rgba(8,5,3,.8); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
@@ -898,7 +898,7 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 }
 
 /* ============================================================
-   v7: Aufräumen (Duplikate/Reset/Cover), Lesetagebuch, Zitat-Karten, Zähler
+   v1.7: Aufräumen (Duplikate/Reset/Cover), Lesetagebuch, Zitat-Karten, Zähler
    ============================================================ */
 
 /* Treffer-Zähler über der Sammlung */
@@ -985,12 +985,12 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 .journal-add textarea { flex: 1; min-width: 160px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 9px; color: var(--text); padding: 9px 10px; font-size: 12.5px; resize: vertical; outline: none; }
 .journal-add input:focus, .journal-add textarea:focus { border-color: var(--accent); }
 
-/* v7.1: Duplikat-Modus-Umschalter */
+/* v1.8: Duplikat-Modus-Umschalter */
 .dup-modes { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
 .dup-modes .chip { font-size: 11.5px; }
 
 /* ============================================================
-   v10: Serien-Ansicht, Mehrfachauswahl, Bulk-Aktionen
+   v2.2: Serien-Ansicht, Mehrfachauswahl, Bulk-Aktionen
    ============================================================ */
 
 /* Ansichts-Umschalter Einzeln/Serien */
@@ -1070,10 +1070,10 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
 .bulk-act:active { transform: scale(.96); }
 .bulk-act.danger { border-color: rgba(244,63,94,.4); color: #fb7185; }
 
-/* v11.3: Cover-Nachladen im Detail */
+/* v2.6: Cover-Nachladen im Detail */
 .cover-load-btn { font-size: 11.5px; padding: 6px 11px; }
 
-/* ═════════ v14: Sammler-Funktionen ═════════ */
+/* ═════════ v3: Sammler-Funktionen ═════════ */
 
 /* ── Besitz & Standort im Detail ── */
 .own-block { margin: 10px 18px 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-soft); }
