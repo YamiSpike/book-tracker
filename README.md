@@ -43,6 +43,22 @@ nach, sodass die Handler in `api/` unverändert laufen; `js/cloud.js` und `sw.js
 nachgebauten Browser- bzw. Worker-Umgebung. Abgedeckt sind die Stellen, an denen ein Fehler Daten kostet:
 Cloud-Merge, Rate-Limits, Besitzprüfung der Teilen-Links und der Cover-Cache-Deckel.
 
+`test/konsistenz.mjs` prüft zusätzlich die Release-Mechanik: dass `APP_VERSION`, der
+SW-Cache-Key, `version.json`, alle `?v=`-Buster, die sichtbaren Labels und der
+„Was ist neu"-Eintrag dieselbe Version tragen, dass jede von `index.html` geladene
+Datei im SW-Precache steht, und dass keine Inline-Event-Handler zurückkommen.
+
+## Sicherheit
+
+Die Content-Security-Policy steht als `<meta>` in `index.html`, nicht als Header in
+`vercel.json`: ein Header über `/(.*)` träfe auch `sw.js`, und im Service Worker gilt
+dessen eigene CSP für seine `fetch()`-Aufrufe — der Cover-Cache wäre unter einer strengen
+`connect-src` sofort tot. `frame-ancestors` wirkt nur als Header und steht deshalb dort.
+
+`img-src` ist bewusst offen für `https:`: Cover kommen aus offenen Buch-APIs und über
+JSON-/Goodreads-Import auch von beliebigen Fremdadressen — eine Positivliste würde
+importierte Sammlungen still zerlegen. Der eigentliche Schutz sitzt bei `script-src 'self'`.
+
 ## Versionierung
 
 Bei jedem Release synchron bumpen: `APP_VERSION` in `js/update.js` · Cache-Key in `sw.js` · `version.json` · Versionsangaben in `index.html`.

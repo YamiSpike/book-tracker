@@ -82,6 +82,50 @@ await share(req('DELETE', { query: { id: 'egal' } }), r);
 pruefe('DELETE ohne Anmeldung -> 401', r.code === 401);
 
 console.log('');
+console.log('-- api/share.js: base64url-IDs (seit v3.5) ------------');
+
+// Bis v3.4 entfernte shareKey() - und _ aus der ID. Verschiedene IDs landeten
+// dadurch auf demselben Redis-Schluessel.
+const rohKey = (x) => 'share:books:' + String(x).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24);
+
+r = res();
+await share(req('POST', { tok: tokA, body: { books: buecher } }), r);
+const id2 = r.body.id;
+pruefe('neue ID wird ungekuerzt als Schluessel benutzt', mock.db.has(rohKey(id2)), 'ID ' + id2 + ' -> ' + rohKey(id2));
+
+// Zwei IDs, die sich NUR durch - und _ unterscheiden, duerfen nicht kollidieren
+mock.db.set('share:books:aa-bb_cc', { typ: 'string', val: JSON.stringify({ owner: 'anna', ownerEmail: 'anna@example.com', books: [{ title: 'Mit Strichen' }], createdAt: 1 }) });
+mock.db.set('share:books:aabbcc', { typ: 'string', val: JSON.stringify({ owner: 'bert', ownerEmail: 'bert@example.com', books: [{ title: 'Ohne Striche' }], createdAt: 1 }) });
+r = res();
+await share(req('GET', { query: { id: 'aa-bb_cc' } }), r);
+pruefe('ID mit Strichen liefert ihren eigenen Link', r.code === 200 && r.body.books[0].title === 'Mit Strichen', JSON.stringify(r.body).slice(0, 90));
+r = res();
+await share(req('GET', { query: { id: 'aabbcc' } }), r);
+pruefe('ID ohne Striche liefert ihren eigenen Link', r.code === 200 && r.body.books[0].title === 'Ohne Striche', JSON.stringify(r.body).slice(0, 90));
+
+// Vor v3.5 angelegter Link: liegt unter dem ENTSCHAERFTEN Schluessel
+mock.db.delete('share:books:aa-bb_cc');
+mock.db.delete('share:books:aabbcc');
+mock.db.set('share:books:XyZ123', { typ: 'string', val: JSON.stringify({ owner: 'anna', ownerEmail: 'anna@example.com', books: [{ title: 'Altbestand' }], createdAt: 1 }) });
+r = res();
+await share(req('GET', { query: { id: 'X-yZ_123' } }), r);
+pruefe('Altlink mit Strichen wird ueber den Rueckfall gefunden', r.code === 200 && r.body.books[0].title === 'Altbestand', JSON.stringify(r.body).slice(0, 90));
+
+r = res();
+await share(req('DELETE', { tok: tokB, query: { id: 'X-yZ_123' } }), r);
+pruefe('Altlink: fremdes Konto scheitert auch ueber den Rueckfall', r.code === 403 && mock.db.has('share:books:XyZ123'), 'war ' + r.code);
+
+r = res();
+await share(req('DELETE', { tok: tokA, query: { id: 'X-yZ_123' } }), r);
+pruefe('Altlink: Besitzer loescht ihn unter dem alten Schluessel', r.code === 200 && !mock.db.has('share:books:XyZ123'), 'war ' + r.code);
+
+// Ohne - und _ darf gar kein zweiter Redis-Zugriff passieren
+const vorRueckfall = mock.log.length;
+r = res();
+await share(req('GET', { query: { id: 'schlichteid' } }), r);
+pruefe('ohne Striche kein zweiter Schluessel-Versuch', mock.log.length - vorRueckfall === 2, 'Befehle: ' + (mock.log.length - vorRueckfall) + ' (1x Rate-Limit + 1x get)');
+
+console.log('');
 console.log('-- api/sync.js: Rate-Limit ----------------------------');
 
 r = res();

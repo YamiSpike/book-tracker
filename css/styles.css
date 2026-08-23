@@ -1182,3 +1182,11 @@ h2 { font-size: 20px; margin: 18px 0 4px; }
   .own-grid label { margin-top: 4px; }
   .duel-lbl { font-size: 10px; padding: 0 2px; }
 }
+
+/* Rouletten-Cover („🎲 Was lese ich als Nächstes?") — steht außerhalb von .card
+   und .detail-hero und trug seine Maße bis v3.4 als style="…"-Attribut. Als Klasse
+   ausgelagert, damit die Content-Security-Policy ohne Inline-Styles auskäme. */
+.cover-fallback.rollen {
+  width: 110px; aspect-ratio: 2/3; display: flex;
+  align-items: center; justify-content: center; font-size: 30px;
+}

@@ -651,8 +651,28 @@
   }
 
   // ───── Karten-Rendering ─────
+  // Cover-Ausfälle zentral abfangen. Früher hing an jedem <img> ein
+  // onerror="…"-Attribut — eine strenge Content-Security-Policy verbietet solche
+  // Inline-Handler. 'error' steigt nicht auf, deshalb Capture-Phase.
+  var COVER_ERSATZ = {
+    buch:   { klasse: 'cover-fallback', innen: '<div class="big">📕</div>' },
+    serie:  { klasse: 'cover-fallback', innen: '<div class="big">📚</div>' },
+    detail: { klasse: 'cover-fallback', innen: '📕' },
+    rollen: { klasse: 'cover-fallback rollen', innen: '📕' }
+  };
+  document.addEventListener('error', function (e) {
+    var img = e.target;
+    if (!img || img.tagName !== 'IMG') return;
+    var cfg = COVER_ERSATZ[img.getAttribute('data-fallback')];
+    if (!cfg || !img.parentNode) return;
+    var d = document.createElement('div');
+    d.className = cfg.klasse;
+    d.innerHTML = cfg.innen;          // feste Zeichenketten von oben, keine Fremddaten
+    img.parentNode.replaceChild(d, img);
+  }, true);
+
   function coverHtml(b) {
-    if (b.cover) return '<img class="cover" loading="lazy" width="200" height="300" src="' + esc(b.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot;&gt;&lt;div class=&quot;big&quot;&gt;📕&lt;/div&gt;&lt;/div&gt;\'" />';
+    if (b.cover) return '<img class="cover" loading="lazy" width="200" height="300" src="' + esc(b.cover) + '" alt="" data-fallback="buch" />';
     return '<div class="cover-fallback"><div class="big">📕</div><div class="t">' + esc(b.title.slice(0, 46)) + '</div></div>';
   }
   function cardHtml(b, opts) {
@@ -1185,7 +1205,7 @@
 
   function seriesCardHtml(g) {
     var cover = g.cover
-      ? '<img class="cover" loading="lazy" width="200" height="300" src="' + esc(g.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot;&gt;&lt;div class=&quot;big&quot;&gt;📚&lt;/div&gt;&lt;/div&gt;\'" />'
+      ? '<img class="cover" loading="lazy" width="200" height="300" src="' + esc(g.cover) + '" alt="" data-fallback="serie" />'
       : '<div class="cover-fallback"><div class="big">📚</div><div class="t">' + esc(g.name.slice(0, 40)) + '</div></div>';
     var missingBadge = g.missing && g.missing.length
       ? '<span class="series-badge missing">' + g.missing.length + ' fehlen</span>'
@@ -2389,7 +2409,7 @@
 
     inner.innerHTML =
       '<div class="detail-hero">'
-      + (b.cover ? '<img width="110" height="165" src="' + esc(b.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot;&gt;📕&lt;/div&gt;\'" />' : '<div class="cover-fallback">📕</div>')
+      + (b.cover ? '<img width="110" height="165" src="' + esc(b.cover) + '" alt="" data-fallback="detail" />' : '<div class="cover-fallback">📕</div>')
       + '<div class="titles"><h2>' + esc(b.title) + '</h2>'
       + '<div class="author">' + esc(b.authors.join(', ') || 'Unbekannt') + '</div>'
       + '<div class="facts">' + facts.map(function (f) { return '<span class="fact-pill">' + esc(f) + '</span>'; }).join('') + '</div>'
@@ -3355,7 +3375,7 @@
     var i = 0, spins = Math.min(14, pool.length * 3 + 4);
     var iv = setInterval(function () {
       var b = (i < spins - 1) ? pool[Math.floor(Math.random() * pool.length)] : winner;
-      cov.innerHTML = b.cover ? '<img width="150" height="225" src="' + esc(b.cover) + '" alt="" onerror="this.outerHTML=\'&lt;div class=&quot;cover-fallback&quot; style=&quot;width:110px;aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;font-size:30px;&quot;&gt;📕&lt;/div&gt;\'" />' : '<div class="cover-fallback" style="width:110px;aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;font-size:30px;">📕</div>';
+      cov.innerHTML = b.cover ? '<img width="150" height="225" src="' + esc(b.cover) + '" alt="" data-fallback="rollen" />' : '<div class="cover-fallback rollen">📕</div>';
       nam.textContent = b.title;
       i++;
       if (i >= spins) {
@@ -4032,8 +4052,11 @@
       topbar.classList.toggle('scrolled', window.scrollY > 8);
     }, { passive: true });
 
-    // Service Worker
-    if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    // Service Worker — Bedingung ist der sichere Kontext, nicht stur https:.
+    // isSecureContext ist auch auf http://localhost bzw. 127.0.0.1 wahr; genau dort
+    // erlaubt der Browser Service Worker ausdruecklich. Vorher sprang er lokal nie
+    // an, der Offline-/Update-Pfad war damit nur in Produktion ueberhaupt pruefbar.
+    if ('serviceWorker' in navigator && window.isSecureContext) {
       navigator.serviceWorker.register('sw.js').catch(function () {});
     }
   }

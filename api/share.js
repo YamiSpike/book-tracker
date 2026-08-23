@@ -8,8 +8,27 @@ import { getRedis, verifyToken, readBody, clientIp, rateLimit } from "./_lib.js"
 const TTL = 60 * 60 * 24 * 30; // 30 Tage
 const MAX_BYTES = 900_000;     // Snapshot-Limit gegen Speicher-Missbrauch
 
+// IDs sind base64url (A-Za-z0-9-_). Bis v3.4 entfernte der Schlüssel - und _ und
+// warf damit verschiedene IDs auf denselben Redis-Schlüssel. Jetzt bleiben sie
+// erhalten; alles andere fliegt weiterhin raus, damit von außen kein fremder
+// Schlüssel adressierbar wird.
 function shareKey(id) {
+  return "share:books:" + String(id || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24);
+}
+// Vor v3.5 angelegte Links liegen unter dem alten, entschärften Schlüssel.
+function shareKeyAlt(id) {
   return "share:books:" + String(id || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 24);
+}
+// Link laden und dabei sagen, unter WELCHEM Schlüssel er lag (fürs Löschen).
+// Der Rückfall greift nur, wenn die ID überhaupt - oder _ enthält — sonst sind
+// beide Schlüssel ohnehin identisch und ein zweiter Zugriff wäre verschwendet.
+async function ladeShare(redis, id) {
+  const key = shareKey(id);
+  const data = await redis.get(key);
+  if (data) return { key, data };
+  if (!/[-_]/.test(String(id || ""))) return { key, data: null };
+  const alt = shareKeyAlt(id);
+  return { key: alt, data: await redis.get(alt) };
 }
 
 export default async function handler(req, res) {
@@ -21,7 +40,7 @@ export default async function handler(req, res) {
       return res.status(429).json({ error: "Zu viele Anfragen. Bitte später erneut." });
     const id = (req.query && req.query.id) || "";
     if (!id) return res.status(400).json({ error: "Kein Link angegeben." });
-    const data = await redis.get(shareKey(id));
+    const { data } = await ladeShare(redis, id);
     if (!data) return res.status(404).json({ error: "Dieser Teilen-Link existiert nicht mehr (Links gelten 30 Tage)." });
     return res.status(200).json({ books: data.books || [], owner: data.owner || "", createdAt: data.createdAt || 0 });
   }
@@ -65,8 +84,7 @@ export default async function handler(req, res) {
       return res.status(429).json({ error: "Zu viele Anfragen. Bitte später erneut." });
     const id = (req.query && req.query.id) || "";
     if (!id) return res.status(400).json({ error: "Kein Link angegeben." });
-    const key = shareKey(id);
-    const data = await redis.get(key);
+    const { key, data } = await ladeShare(redis, id);
     if (!data) return res.status(200).json({ ok: true });   // schon weg oder abgelaufen
     // Besitz prüfen — angemeldet zu sein reicht NICHT, sonst löscht jedes Konto
     // jeden fremden Link, dessen ID es kennt. Ältere Links (vor v3.4) haben kein
