@@ -1,4 +1,4 @@
-/* Hon 本 · Bücher Tracker — Service Worker v2.11
+/* Hon 本 · Bücher Tracker — Service Worker (Version steht in CACHE/BUST unten)
    Update NUR per Banner-Klick (Japan-Navigator-Muster):
    - SHELL-Cache (buecher-shell) hält index.html + App-Code (?v=-Buster) und
      ÜBERLEBT SW-Updates → die installierte App bleibt auf ihrer Version,
@@ -6,25 +6,64 @@
    - Eine neue Version kommt AUSSCHLIESSLICH über den Update-Banner: dessen
      Klick lädt mit ?_v=… → Netz erzwungen → Shell erneuert.
    - Cover-Cache (buecher-covers-v1) bleibt eigenständig und überlebt Updates. */
-const CACHE = 'hon-v3-3';
+const CACHE = 'hon-v3-4';
 // Cover-Cache ist EIGENSTÄNDIG versioniert und überlebt App-Updates —
 // sonst wären nach jedem Versions-Bump alle Offline-Cover weg
 const COVER_CACHE = 'buecher-covers-v1';
+
+// ───── Cover-Cache im Zaum halten ─────────────────────────────────────────
+// Der Cover-Cache überlebt bewusst jedes Update — ohne Deckel wächst er dadurch
+// unbegrenzt. Reißt der Origin sein Speicher-Kontingent, räumt der Browser unter
+// Umständen ALLES für diese Herkunft ab, auch die IndexedDB mit der Sammlung.
+// Ein paar Cover neu zu laden ist billig; die Bücher zu verlieren wäre es nicht.
+const COVER_MAX = 3000;        // Regelbetrieb: so viele Cover bleiben liegen
+const COVER_MAX_ENG = 1200;    // bei Speicherdruck: härter beschneiden
+const COVER_PRUEF_ALLE = 60;   // erst nach so vielen Neuzugängen nachzählen
+let coverNeu = 0, coverPutzt = false;
+
+// Nutzt diese Herkunft schon einen Großteil ihres Kontingents?
+async function speicherKnapp() {
+  try {
+    if (!self.navigator || !navigator.storage || !navigator.storage.estimate) return false;
+    const { usage, quota } = await navigator.storage.estimate();
+    return !!(usage && quota && usage / quota > 0.6);
+  } catch (err) { return false; }
+}
+
+async function coverBeschneiden() {
+  if (coverPutzt) return;
+  coverPutzt = true;
+  try {
+    const grenze = (await speicherKnapp()) ? COVER_MAX_ENG : COVER_MAX;
+    const c = await caches.open(COVER_CACHE);
+    const keys = await c.keys();
+    if (keys.length <= grenze) return;
+    // Die Cache-API liefert die Schlüssel in Einfüge-Reihenfolge — die ältesten
+    // stehen vorn. Das ist FIFO, kein echtes LRU: ein verdrängtes Cover wird beim
+    // nächsten Anzeigen schlicht neu geladen. Echtes LRU würde bei JEDEM Treffer
+    // einen Cache-Schreibvorgang kosten — beim Scrollen durch tausende Karten
+    // wäre das teurer als der Nutzen.
+    const weg = keys.slice(0, keys.length - grenze);
+    for (let i = 0; i < weg.length; i += 100) {
+      await Promise.all(weg.slice(i, i + 100).map((k) => c.delete(k).catch(() => {})));
+    }
+  } catch (err) {} finally { coverPutzt = false; }
+}
 // App-Shell (index.html + versionierte Sub-Assets): Cache-First — Updates
 // kommen NUR über den Banner-Klick (?_v=…) in die App. Überlebt SW-Updates,
 // sonst würde jeder Deploy still updaten.
 const SHELL = 'buecher-shell';
 // MUSS mit den ?v=-Bustern in index.html übereinstimmen (Versions-Trias!)
-const BUST = '?v=3.3';
+const BUST = '?v=3.4';
 
 // Kosmetische Statik (unkritisch fürs Versions-Pinning) — versionierter Cache
 const PRECACHE = [
   './manifest.json',
-  './icon.svg?v=3.3',
+  './icon.svg?v=3.4',
   './img/fuku.png',
-  './icons/icon-180.png?v=3.3',
-  './icons/icon-192.png?v=3.3',
-  './icons/icon-512.png?v=3.3',
+  './icons/icon-180.png?v=3.4',
+  './icons/icon-192.png?v=3.4',
+  './icons/icon-512.png?v=3.4',
 ];
 
 // App-Code: gehört zur gepinnten Shell-Version → persistenter SHELL-Cache.
@@ -76,6 +115,8 @@ self.addEventListener('activate', (e) => {
       // Alle offenen Tabs informieren → App prüft version.json und zeigt ggf. den Update-Banner
       const clients = await self.clients.matchAll({ type: 'window' });
       clients.forEach((c) => c.postMessage({ type: 'SW_ACTIVATED', cache: CACHE }));
+      // Zum Schluss den Cover-Cache auf Maß bringen (blockiert den Start nicht)
+      await coverBeschneiden();
     })()
   );
 });
@@ -105,7 +146,15 @@ self.addEventListener('fetch', (e) => {
         if (hit) return hit;
         try {
           const res = await fetch(req);
-          if (res && (res.ok || res.type === 'opaque')) c.put(req, res.clone()).catch(() => {});
+          if (res && (res.ok || res.type === 'opaque')) {
+            c.put(req, res.clone()).catch(() => {});
+            // Nur gelegentlich nachzählen — cache.keys() ist O(n) und hat bei
+            // tausenden Covern in einem Bild-Request nichts verloren.
+            if (++coverNeu >= COVER_PRUEF_ALLE) {
+              coverNeu = 0;
+              try { e.waitUntil(coverBeschneiden()); } catch (err2) {}
+            }
+          }
           return res;
         } catch (err) {
           return hit || Response.error();

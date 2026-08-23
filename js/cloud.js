@@ -125,6 +125,14 @@
   // Datenschlüssel, die ein „Alles löschen" betreffen
   var DATA_KEYS = ['bk_books', 'bk_sessions', 'bk_achievements', 'bk_active_session'];
 
+  // Wert aus der Cloud als Text. Upstash liefert Hash-Werte JSON-geparst zurück,
+  // lokal liegt aber alles als String — hier wieder zusammenführen.
+  function alsText(v) {
+    if (typeof v === 'string') return v;
+    if (v == null) return null;
+    try { return JSON.stringify(v); } catch (e) { return null; }
+  }
+
   function mergeApply(remote) {
     if (!remote || typeof remote !== 'object') return false;
     var changed = false;
@@ -149,8 +157,15 @@
     // Bücher separat behandeln (liegen im Store, evtl. komprimiert als bk_books_lz)
     if (!skipData) {
       var remoteBooks = null;
-      if (typeof remote['bk_books_lz'] === 'string') remoteBooks = decompressBooks(remote['bk_books_lz']);
-      else if (typeof remote['bk_books'] === 'string') remoteBooks = remote['bk_books'];
+      // alsText(): Upstash parst JSON-fähige Hash-Werte beim Lesen automatisch —
+      // der Voll-Blob '[]' kommt als ARRAY zurück, nicht als String. Der lz:-Blob
+      // ist kein gültiges JSON und bleibt String, der unkomprimierte Fallback aber
+      // nicht: ohne diese Normalisierung landete die Sammlung aus der Cloud dort
+      // nie im Store. Die übrigen Schlüssel unten machen das längst genauso.
+      var rlz = alsText(remote['bk_books_lz']);
+      var rbk = alsText(remote['bk_books']);
+      if (rlz != null) remoteBooks = decompressBooks(rlz);
+      else if (rbk != null) remoteBooks = rbk;
       if (remoteBooks != null) {
         var lvb = booksGetRaw();
         if (lvb == null || lvb === '[]' || lvb === '') { booksSetRaw(remoteBooks); changed = true; }
@@ -165,7 +180,7 @@
       if (BLOCK.has(k) || k === 'bk_books' || k === 'bk_books_lz') return;
       // Nach einem Wipe die Daten aus der Cloud NICHT zurückholen
       if (skipData && DATA_KEYS.indexOf(k) >= 0) return;
-      var rv = remote[k]; if (typeof rv !== 'string') { try { rv = JSON.stringify(rv); } catch (e) { return; } }
+      var rv = alsText(remote[k]); if (rv == null) return;
       var lv = lsGet(k);
       if (lv === null) { if (lsSet(k, rv)) changed = true; return; }
       if (lv === rv) return;
@@ -206,10 +221,26 @@
   function requestEmailReset(email) { return authReq('recover', { action: 'request', email: email }); }
   function resetWithEmailCode(email, code, newPassword) { return authReq('recover', { action: 'email', email: email, code: code, newPassword: newPassword }).then(needToken); }
 
+  // ───── Antwort-Prüfung & 429-Pause ─────
+  // /api/sync ist seit v3.4 rate-limitiert. Ein 429 darf NICHT stillschweigend
+  // als Erfolg durchgehen — sonst meldet die Statuszeile „Synchronisiert ✓",
+  // obwohl nichts übertragen wurde. Nach einem 429 wird kurz pausiert, statt
+  // weiter gegen die Grenze zu laufen (gleiches Muster wie die Google-Books-
+  // Schleuse in app.js: ist das Kontingent erschöpft, hilft nur Warten).
+  var syncPauseBis = 0;
+  var PAUSE_TEXT = 'Zu viele Sync-Anfragen — bitte eine Minute warten.';
+  function syncPausiert() { return Date.now() < syncPauseBis; }
+  function pruefeAntwort(res) {
+    if (res.status === 401) { logout(); throw new Error('Sitzung abgelaufen — bitte neu anmelden.'); }
+    if (res.status === 429) { syncPauseBis = Date.now() + 60000; throw new Error(PAUSE_TEXT); }
+    return res;
+  }
+
   function pull() {
     var t = getToken(); if (!t) return Promise.resolve(null);
+    if (syncPausiert()) return Promise.reject(new Error(PAUSE_TEXT));
     return fetch(API + '/sync?app=' + APP, { headers: { Authorization: 'Bearer ' + t } }).then(function (res) {
-      if (res.status === 401) { logout(); throw new Error('Sitzung abgelaufen — bitte neu anmelden.'); }
+      pruefeAntwort(res);
       return res.json().catch(function () { return {}; }).then(function (j) { return j.data || null; });
     });
   }
@@ -218,12 +249,13 @@
   // setzt den Delta-Snapshot (lastFields), damit danach nur noch Deltas gehen.
   function push(data) {
     var t = getToken(); if (!t) return Promise.resolve(false);
+    if (syncPausiert()) return Promise.reject(new Error(PAUSE_TEXT));
     var sent = data || collectData();
     return fetch(API + '/sync?app=' + APP, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
       body: JSON.stringify({ data: sent })
     }).then(function (res) {
-      if (res.status === 401) { logout(); throw new Error('Sitzung abgelaufen — bitte neu anmelden.'); }
+      pruefeAntwort(res);
       if (res.ok) { lastFields = fieldHashes(sent); lastSyncAt = Date.now(); lsSet('bk_cloud_lastsync', String(lastSyncAt)); refreshStatusLine(); }
       return res.ok;
     });
@@ -234,6 +266,7 @@
   // damit die Server-Migration + ein vollständiger Ausgangsstand garantiert sind.
   function pushDelta() {
     var t = getToken(); if (!t) return Promise.resolve(false);
+    if (syncPausiert()) return Promise.reject(new Error(PAUSE_TEXT));
     var cur = collectData();
     if (!lastFields) return push(cur);
     var ch = fieldHashes(cur), patch = {}, remove = [], any = false;
@@ -244,7 +277,7 @@
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
       body: JSON.stringify({ patch: patch, remove: remove })
     }).then(function (res) {
-      if (res.status === 401) { logout(); throw new Error('Sitzung abgelaufen — bitte neu anmelden.'); }
+      pruefeAntwort(res);
       if (res.ok) { lastFields = ch; lastSyncAt = Date.now(); lsSet('bk_cloud_lastsync', String(lastSyncAt)); refreshStatusLine(); }
       return res.ok;
     });
