@@ -18,6 +18,32 @@ Buch-Empfehlungen aus der eigenen Sammlung und Cloud-Sync über alle Geräte.
 - Backend: Vercel Serverless Functions (`api/`) + Upstash Redis
 - Buchdaten: Google Books API (kein Key nötig)
 
+## Aufbau des Frontends
+
+`js/app.js` ist der Kern. Vier Bereiche liegen daneben in eigenen Dateien:
+
+| Datei | Inhalt |
+|---|---|
+| `js/app-quellen.js` | Manga- & Zeitschriften-Quellen (AniList, Jikan, DNB, deutsche Verlage) |
+| `js/app-statistik.js` | Statistik, Besitz/Verleih, Lese-Tempo, Tsundoku-Bilanz, Zitat-Export |
+| `js/app-erfolge.js` | Abzeichen und ihre Bedingungen |
+| `js/app-jahr.js` | Jahresrückblick und Jahres-Duell |
+
+Ohne Build-Schritt und ohne ES-Module: es sind klassische `<script src>`-Dateien, die **nach**
+`app.js` geladen werden. Die Bindung läuft über `window.HonIntern` — `app.js` legt dort seine
+Werkzeuge ab, die Teilmodule holen sie sich und tragen ihre eigenen Funktionen zurück ein.
+Funktionen werden über Weiterleitungen gebunden (spät, damit auch Verweise zwischen den
+Teilmodulen funktionieren), Konstanten direkt kopiert. **Veränderliche Variablen gehören nicht
+in `HonIntern`** — ein Teilmodul bekäme nur eine Kopie und sähe spätere Änderungen nicht.
+Genau daran entscheidet sich, welcher Bereich sich überhaupt herauslösen lässt.
+
+Dass das funktioniert, hängt an einem Detail: `app.js` startet erst bei `DOMContentLoaded`,
+also nachdem alle Skripte gelaufen sind. Die Reihenfolge der Teilmodule untereinander ist
+deshalb egal — sie müssen nur nach `app.js` stehen.
+
+Jede neue Teildatei braucht drei Einträge: `?v=`-Buster in `index.html`, `SHELL_ASSETS` in
+`sw.js`, und sie muss `npm test` überstehen (`test/konsistenz.mjs` prüft die ersten beiden).
+
 ## Deployment (Vercel)
 
 Benötigte Environment-Variablen für den Cloud-Sync:
@@ -47,6 +73,14 @@ Cloud-Merge, Rate-Limits, Besitzprüfung der Teilen-Links und der Cover-Cache-De
 SW-Cache-Key, `version.json`, alle `?v=`-Buster, die sichtbaren Labels und der
 „Was ist neu"-Eintrag dieselbe Version tragen, dass jede von `index.html` geladene
 Datei im SW-Precache steht, und dass keine Inline-Event-Handler zurückkommen.
+
+`test/app-verhalten.mjs` fährt die komplette App in jsdom hoch (echte `index.html`, alle
+Skripte in der Reihenfolge aus dem Markup) und steuert sie durch das DOM: Sammlung, Filter,
+Sortierung, Statistik, Detailfenster samt gespeichertem Statuswechsel, Serien-Ansicht,
+Duplikate, Cover-Ersatz. Diese Datei ist als Charakterisierungsnetz für die Aufteilung von
+`app.js` entstanden — sie beschreibt, was die App **tut**, nicht was sie tun sollte, und lief
+vor wie nach dem Umbau unverändert durch. Wer an `app.js` oder den Teilmodulen schneidet,
+sollte sie vorher grün sehen.
 
 ## Sicherheit
 

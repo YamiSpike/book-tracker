@@ -14,6 +14,10 @@
   // { v, titel, punkte: [ [Icon, Überschrift, Erklärung], … ] }
   // v muss exakt dem Präfix von APP_VERSION entsprechen (z. B. "v39").
   var CHANGELOG = [
+    { v: "v3.6", titel: "Umbau im Maschinenraum", punkte: [
+      ["🧱", "Die App ist in Bausteine zerlegt", "Der Programmcode steckte zu einem großen Teil in einer einzigen, sehr langen Datei. Statistik, Manga- und Zeitschriften-Quellen, Jahresrückblick und Abzeichen sind jetzt eigene Bausteine. An der App ändert sich nichts — sie lädt nur in Stücken, die man einzeln überblicken und prüfen kann."],
+      ["🧪", "Ein Sicherheitsnetz davor", "Vor dem Umbau ist eine Testreihe entstanden, die die App fernsteuert und ihr Verhalten festhält: Sammlung, Filter, Sortierung, Statistik, Detailfenster, Serien, Duplikate. Dieselbe Reihe läuft nach dem Umbau unverändert durch — deshalb wissen wir, dass nichts verrutscht ist."]
+    ]},
     { v: "v3.5", titel: "Ein Riegel mehr", punkte: [
       ["🔒", "Die App erlaubt dem Browser weniger", "Ab jetzt gilt eine feste Regel, welche Adressen die Seite überhaupt ansprechen darf und woher Code kommen darf — Skripte nur noch aus der App selbst. Falls je etwas Fremdes den Weg in eine Buchbeschreibung fände, könnte es nicht mehr loslaufen. Du merkst davon nichts; Suche, Cover und Sync funktionieren unverändert."],
       ["🔗", "Teilen-Links bleiben unverwechselbar", "Zwei Zeichen der Link-Kennung fielen intern unter den Tisch. Praktisch ist nie etwas passiert, aber theoretisch konnten zwei verschiedene Links auf denselben Eintrag zeigen. Alte Links funktionieren weiter."],
