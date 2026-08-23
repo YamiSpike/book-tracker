@@ -14,6 +14,12 @@
   // { v, titel, punkte: [ [Icon, Überschrift, Erklärung], … ] }
   // v muss exakt dem Präfix von APP_VERSION entsprechen (z. B. "v39").
   var CHANGELOG = [
+    { v: "v3.4", titel: "Aufräumen unter der Haube", punkte: [
+      ["🛡️", "Der Cover-Speicher hat jetzt eine Obergrenze", "Bisher sammelte die App jedes einmal geladene Titelbild für immer an. Bei großen Sammlungen wuchs das ungebremst — und wenn dem Browser der Platz ausgeht, wirft er im Zweifel ALLES weg, was diese Seite gespeichert hat. Auch deine Bücher. Ab jetzt bleiben die zuletzt gesehenen Cover liegen, ältere weichen. Ein verdrängtes Titelbild lädt beim nächsten Anschauen einfach neu."],
+      ["☁️", "Der Sync sagt die Wahrheit", "Lehnte der Server eine Anfrage ab, stand trotzdem „Synchronisiert ✓“ da. Jetzt siehst du, dass es nicht geklappt hat — und die App wartet kurz, statt weiter anzuklopfen."],
+      ["📥", "Bücher aus der Cloud kamen in einem Fall nicht an", "Auf einem frischen Gerät konnte die Sammlung stumm leer bleiben, wenn sie unkomprimiert in der Cloud lag. Gefunden beim Testen, behoben."],
+      ["🔗", "Teilen-Links gehören wieder dir allein", "Wer den Link kannte, konnte ihn löschen — auch von einem fremden Konto aus. Jetzt darf das nur noch, wem er gehört."]
+    ]},
     { v: "v3.3", titel: "Neue Versionszählung", punkte: [
       ["🔢", "Versionsnummer neu gezählt", "Bisher stieg die ganze Zahl fast bei jeder Auslieferung — so kam v14.2 zustande. Ab jetzt zählt die Stelle hinter dem Punkt fortlaufend, die ganze Zahl steigt nur noch bei echten Umbauten. Rückwirkend auf alle 27 Auslieferungen angewendet ergibt das v3.3. Es fehlt nichts, die App ist dieselbe — nur die Nummer ist wieder handlich."]
     ]},

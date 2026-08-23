@@ -1,4 +1,4 @@
-import { getRedis, verifyPayload, readBody } from "./_lib.js";
+import { getRedis, verifyPayload, readBody, rateLimit } from "./_lib.js";
 
 // Bücherdaten laden/speichern — DELTA-SYNC pro Sammlung als Redis-Hash.
 // Jede Top-Level-Sammlung (bk_*-Key bzw. bk_books_lz) liegt als eigenes Hash-Feld,
@@ -34,6 +34,13 @@ export default async function handler(req, res) {
   const p = verifyPayload(req);
   if (!p) return res.status(401).json({ error: "Nicht angemeldet." });
   const email = p.email;
+  // Rate-Limit pro Konto — steht VOR den eigentlichen Redis-Zugriffen, damit ein
+  // Missbrauch nur einen billigen Zähler kostet statt hgetall der ganzen Sammlung.
+  // Großzügig bemessen: cloud.js pusht höchstens alle 8 s (POLL_MS) und nur bei
+  // echter Änderung, macht ~8 Anfragen/Minute je Gerät. 600 pro 5 Minuten lassen
+  // damit rund 15 gleichzeitig aktive Geräte zu und deckeln eine Schleife bei 2/s.
+  if (!(await rateLimit(`sync:${email}`, 600, 300)))
+    return res.status(429).json({ error: "Zu viele Sync-Anfragen. Bitte kurz warten." });
   // Revoke-Prüfung: nach einem Passwort-Reset ausgestellte Tokens haben pv >= user.pwdAt;
   // ältere Tokens werden dadurch ungültig (Token-Diebstahl-/Reset-Schutz).
   const user = await redis.get(`user:${email}`);

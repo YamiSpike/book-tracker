@@ -32,6 +32,17 @@ Benötigte Environment-Variablen für den Cloud-Sync:
 
 Ohne diese Variablen läuft die App vollständig lokal (localStorage); der Cloud-Login meldet dann sauber „noch nicht eingerichtet".
 
+## Tests
+
+```bash
+npm install && npm test
+```
+
+Ohne Browser und ohne echte Datenbank. `test/helpers/upstash-mock.mjs` spricht das Upstash-REST-Protokoll
+nach, sodass die Handler in `api/` unverändert laufen; `js/cloud.js` und `sw.js` laufen in einer
+nachgebauten Browser- bzw. Worker-Umgebung. Abgedeckt sind die Stellen, an denen ein Fehler Daten kostet:
+Cloud-Merge, Rate-Limits, Besitzprüfung der Teilen-Links und der Cover-Cache-Deckel.
+
 ## Versionierung
 
 Bei jedem Release synchron bumpen: `APP_VERSION` in `js/update.js` · Cache-Key in `sw.js` · `version.json` · Versionsangaben in `index.html`.

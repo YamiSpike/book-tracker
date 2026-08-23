@@ -52,14 +52,30 @@ export default async function handler(req, res) {
     // Nutzername vor dem @ reicht als Anzeige — volle E-Mail nicht veröffentlichen
     const owner = email.split("@")[0];
     const id = crypto.randomBytes(8).toString("base64url");
-    await redis.set(shareKey(id), { owner, books: safe, createdAt: Date.now() }, { ex: TTL });
+    // ownerEmail ist die verlässliche Besitzangabe für die Lösch-Prüfung. Sie wird
+    // NIE ausgeliefert — der GET-Zweig gibt nur owner/books/createdAt zurück.
+    // Der Anzeigename `owner` allein reicht nicht: max@gmx.de und max@gmail.com
+    // ergeben beide "max".
+    await redis.set(shareKey(id), { owner, ownerEmail: email, books: safe, createdAt: Date.now() }, { ex: TTL });
     return res.status(200).json({ id });
   }
 
   if (req.method === "DELETE") {
+    if (!(await rateLimit(`sharedel:${email}`, 30, 3600)))
+      return res.status(429).json({ error: "Zu viele Anfragen. Bitte später erneut." });
     const id = (req.query && req.query.id) || "";
     if (!id) return res.status(400).json({ error: "Kein Link angegeben." });
-    await redis.del(shareKey(id));
+    const key = shareKey(id);
+    const data = await redis.get(key);
+    if (!data) return res.status(200).json({ ok: true });   // schon weg oder abgelaufen
+    // Besitz prüfen — angemeldet zu sein reicht NICHT, sonst löscht jedes Konto
+    // jeden fremden Link, dessen ID es kennt. Ältere Links (vor v3.4) haben kein
+    // ownerEmail; für die auf den Anzeigenamen zurückfallen, damit sie löschbar bleiben.
+    const passt = data.ownerEmail
+      ? data.ownerEmail === email
+      : data.owner === email.split("@")[0];
+    if (!passt) return res.status(403).json({ error: "Dieser Link gehört zu einem anderen Konto." });
+    await redis.del(key);
     return res.status(200).json({ ok: true });
   }
 
