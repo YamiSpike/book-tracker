@@ -40,10 +40,10 @@ let r = res();
 await share(req('POST', { tok: tokA, body: { books: buecher } }), r);
 pruefe('POST legt Link an', r.code === 200 && !!r.body.id, JSON.stringify(r.body).slice(0, 120));
 const id = r.body.id;
-// shareKey() in api/share.js entfernt alles ausser [A-Za-z0-9] -- der Redis-Schluessel
-// weicht bei base64url-IDs (die - und _ enthalten koennen) also von der rohen ID ab.
-// Hier genauso rechnen, sonst greift der Test daneben.
-const rkey = (x) => 'share:books:' + String(x).replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
+// Muss shareKey() aus api/share.js exakt nachbilden. Seit v3.5 bleiben - und _
+// erhalten (base64url); die alte Fassung entfernte sie. Rechnet der Test nach der
+// alten Regel, schlaegt er nur bei IDs mit - oder _ fehl -- also sporadisch.
+const rkey = (x) => 'share:books:' + String(x).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24);
 
 const roh = JSON.parse(mock.db.get(rkey(id)).val);
 pruefe('ownerEmail wird gespeichert', roh.ownerEmail === 'anna@example.com', JSON.stringify(roh).slice(0, 90));
@@ -86,12 +86,11 @@ console.log('-- api/share.js: base64url-IDs (seit v3.5) ------------');
 
 // Bis v3.4 entfernte shareKey() - und _ aus der ID. Verschiedene IDs landeten
 // dadurch auf demselben Redis-Schluessel.
-const rohKey = (x) => 'share:books:' + String(x).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24);
 
 r = res();
 await share(req('POST', { tok: tokA, body: { books: buecher } }), r);
 const id2 = r.body.id;
-pruefe('neue ID wird ungekuerzt als Schluessel benutzt', mock.db.has(rohKey(id2)), 'ID ' + id2 + ' -> ' + rohKey(id2));
+pruefe('neue ID wird ungekuerzt als Schluessel benutzt', mock.db.has(rkey(id2)), 'ID ' + id2 + ' -> ' + rkey(id2));
 
 // Zwei IDs, die sich NUR durch - und _ unterscheiden, duerfen nicht kollidieren
 mock.db.set('share:books:aa-bb_cc', { typ: 'string', val: JSON.stringify({ owner: 'anna', ownerEmail: 'anna@example.com', books: [{ title: 'Mit Strichen' }], createdAt: 1 }) });
