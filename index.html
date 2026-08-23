@@ -6,10 +6,39 @@
 <meta name="theme-color" content="#171210" />
 <meta name="description" content="Hon 本 — Deine gelesenen Bücher sammeln, bewerten und passende neue Bücher entdecken. Mit Cloud-Sync über alle Geräte." />
 
+<!--
+  Content-Security-Policy — bewusst als <meta> und NICHT als Header in vercel.json.
+  Ein Header über /(.*) träfe auch sw.js, und im Service Worker gilt dessen eigene
+  CSP für seine fetch()-Aufrufe: der Cover-Cache holt Bilder von books.google.com &
+  Co. und wäre unter einer strengen connect-src schlagartig tot. Als <meta> gilt die
+  Regel nur für dieses Dokument. frame-ancestors funktioniert in <meta> nicht und
+  steht deshalb als Header in vercel.json (dort für den SW folgenlos).
+
+  img-src ist absichtlich offen für https: — Cover kommen aus offenen Buch-APIs und
+  über JSON-/Goodreads-Import auch von beliebigen Fremdadressen. Eine Positivliste
+  würde importierte Sammlungen still zerlegen. Der Schutz sitzt bei script-src 'self':
+  Bilder führen keinen Code aus. style-src braucht 'unsafe-inline', weil index.html
+  mit style="…"-Attributen arbeitet und whatsnew.js sein CSS als <style> einhängt.
+-->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  base-uri 'self';
+  object-src 'none';
+  frame-src 'none';
+  form-action 'self';
+  worker-src 'self';
+  manifest-src 'self';
+  script-src 'self';
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src 'self' https://fonts.gstatic.com;
+  img-src 'self' data: blob: https:;
+  connect-src 'self' https://www.googleapis.com https://openlibrary.org https://services.dnb.de https://graphql.anilist.co https://api.jikan.moe
+" />
+
 <!-- PWA -->
 <link rel="manifest" href="manifest.json" />
-<link rel="icon" type="image/svg+xml" href="icon.svg?v=3.4" />
-<link rel="apple-touch-icon" href="icons/icon-180.png?v=3.4" />
+<link rel="icon" type="image/svg+xml" href="icon.svg?v=3.5" />
+<link rel="apple-touch-icon" href="icons/icon-180.png?v=3.5" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Hon 本 · Bücher Tracker" />
@@ -18,7 +47,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Literata:wght@600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/styles.css?v=3.4" />
+<link rel="stylesheet" href="css/styles.css?v=3.5" />
 </head>
 <body>
 
@@ -364,7 +393,7 @@
         <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Kerzenlicht-Glühen im Hero · Gestaffelte Karten-Animationen · Cover-Zoom &amp; Glanz-Effekt · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata) · 🌗 Auto-Theme nach Systemeinstellung</p>
       </div>
     </details>
-    <p class="muted" style="font-size:12px;margin-top:8px;">Version v3.4</p>
+    <p class="muted" style="font-size:12px;margin-top:8px;">Version v3.5</p>
   </div>
 </section>
 
@@ -379,16 +408,16 @@
 
 <footer class="appfoot">
   <p>Buchdaten: Google Books · Open Library · Deutsche Nationalbibliothek — Cover © jeweilige Verlage</p>
-  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v3.4</p>
+  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v3.5</p>
 </footer>
 
-<script src="js/vendor/lz-string.min.js?v=3.4"></script>
-<script src="js/store.js?v=3.4"></script>
-<script src="js/update.js?v=3.4"></script>
-<script src="js/cloud.js?v=3.4"></script>
-<script src="js/app.js?v=3.4"></script>
-<script src="js/mascot.js?v=3.4"></script>
+<script src="js/vendor/lz-string.min.js?v=3.5"></script>
+<script src="js/store.js?v=3.5"></script>
+<script src="js/update.js?v=3.5"></script>
+<script src="js/cloud.js?v=3.5"></script>
+<script src="js/app.js?v=3.5"></script>
+<script src="js/mascot.js?v=3.5"></script>
 <!-- „Was ist neu" -->
-<script defer src="js/whatsnew.js?v=3.4"></script>
+<script defer src="js/whatsnew.js?v=3.5"></script>
 </body>
 </html>

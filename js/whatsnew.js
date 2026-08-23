@@ -14,6 +14,11 @@
   // { v, titel, punkte: [ [Icon, Überschrift, Erklärung], … ] }
   // v muss exakt dem Präfix von APP_VERSION entsprechen (z. B. "v39").
   var CHANGELOG = [
+    { v: "v3.5", titel: "Ein Riegel mehr", punkte: [
+      ["🔒", "Die App erlaubt dem Browser weniger", "Ab jetzt gilt eine feste Regel, welche Adressen die Seite überhaupt ansprechen darf und woher Code kommen darf — Skripte nur noch aus der App selbst. Falls je etwas Fremdes den Weg in eine Buchbeschreibung fände, könnte es nicht mehr loslaufen. Du merkst davon nichts; Suche, Cover und Sync funktionieren unverändert."],
+      ["🔗", "Teilen-Links bleiben unverwechselbar", "Zwei Zeichen der Link-Kennung fielen intern unter den Tisch. Praktisch ist nie etwas passiert, aber theoretisch konnten zwei verschiedene Links auf denselben Eintrag zeigen. Alte Links funktionieren weiter."],
+      ["🧪", "Die App prüft sich vor jeder Auslieferung selbst", "Eine Testreihe kontrolliert jetzt automatisch, dass bei einer neuen Version keine Versionsnummer und keine Datei zurückbleibt — der Fehler, der bei v14.2 die Anzeige auf der alten Nummer stehen ließ."]
+    ]},
     { v: "v3.4", titel: "Aufräumen unter der Haube", punkte: [
       ["🛡️", "Der Cover-Speicher hat jetzt eine Obergrenze", "Bisher sammelte die App jedes einmal geladene Titelbild für immer an. Bei großen Sammlungen wuchs das ungebremst — und wenn dem Browser der Platz ausgeht, wirft er im Zweifel ALLES weg, was diese Seite gespeichert hat. Auch deine Bücher. Ab jetzt bleiben die zuletzt gesehenen Cover liegen, ältere weichen. Ein verdrängtes Titelbild lädt beim nächsten Anschauen einfach neu."],
       ["☁️", "Der Sync sagt die Wahrheit", "Lehnte der Server eine Anfrage ab, stand trotzdem „Synchronisiert ✓“ da. Jetzt siehst du, dass es nicht geklappt hat — und die App wartet kurz, statt weiter anzuklopfen."],
