@@ -74,6 +74,13 @@ SW-Cache-Key, `version.json`, alle `?v=`-Buster, die sichtbaren Labels und der
 „Was ist neu"-Eintrag dieselbe Version tragen, dass jede von `index.html` geladene
 Datei im SW-Precache steht, und dass keine Inline-Event-Handler zurückkommen.
 
+`test/modul-bindung.mjs` und `test/freie-bezeichner.mjs` sichern die Modul-Architektur ab:
+dass jedes Teilmodul aus `HonIntern` bekommt, was es sich holt; dass der Kern dort keine
+**Weiterleitung** ablegt (die zeigte sonst auf sich selbst, sobald das Teilmodul fehlt);
+dass kein Name doppelt registriert wird; und — per Parser über alle `js/*.js` und `sw.js` —
+dass nirgends ein Bezeichner benutzt wird, den niemand deklariert. Letzteres wäre unter
+`'use strict'` ein `ReferenceError`, und zwar erst beim Aufruf der betroffenen Funktion.
+
 `test/app-verhalten.mjs` fährt die komplette App in jsdom hoch (echte `index.html`, alle
 Skripte in der Reihenfolge aus dem Markup) und steuert sie durch das DOM: Sammlung, Filter,
 Sortierung, Statistik, Detailfenster samt gespeichertem Statuswechsel, Serien-Ansicht,

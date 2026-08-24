@@ -6,7 +6,7 @@
    - Eine neue Version kommt AUSSCHLIESSLICH über den Update-Banner: dessen
      Klick lädt mit ?_v=… → Netz erzwungen → Shell erneuert.
    - Cover-Cache (buecher-covers-v1) bleibt eigenständig und überlebt Updates. */
-const CACHE = 'hon-v3-6';
+const CACHE = 'hon-v3-7';
 // Cover-Cache ist EIGENSTÄNDIG versioniert und überlebt App-Updates —
 // sonst wären nach jedem Versions-Bump alle Offline-Cover weg
 const COVER_CACHE = 'buecher-covers-v1';
@@ -54,16 +54,16 @@ async function coverBeschneiden() {
 // sonst würde jeder Deploy still updaten.
 const SHELL = 'buecher-shell';
 // MUSS mit den ?v=-Bustern in index.html übereinstimmen (Versions-Trias!)
-const BUST = '?v=3.6';
+const BUST = '?v=3.7';
 
 // Kosmetische Statik (unkritisch fürs Versions-Pinning) — versionierter Cache
 const PRECACHE = [
   './manifest.json',
-  './icon.svg?v=3.6',
+  './icon.svg?v=3.7',
   './img/fuku.png',
-  './icons/icon-180.png?v=3.6',
-  './icons/icon-192.png?v=3.6',
-  './icons/icon-512.png?v=3.6',
+  './icons/icon-180.png?v=3.7',
+  './icons/icon-192.png?v=3.7',
+  './icons/icon-512.png?v=3.7',
 ];
 
 // App-Code: gehört zur gepinnten Shell-Version → persistenter SHELL-Cache.
@@ -210,19 +210,28 @@ self.addEventListener('fetch', (e) => {
         try {
           const res = await fetch(req);
           if (res && res.ok) {
-            // Alte Version(en) derselben Datei entsorgen, dann neu speichern
-            try {
-              const keys = await shell.keys();
-              await Promise.all(
-                keys
-                  .filter((k) => {
-                    const ku = new URL(k.url);
-                    return ku.pathname === url.pathname && ku.search !== url.search;
-                  })
-                  .map((k) => shell.delete(k))
-              );
-            } catch (err) {}
-            shell.put(req, res.clone()).catch(() => {});
+            // ERST die neue Fassung sichern, DANN die alte entsorgen — nie umgekehrt.
+            // Vorher stand hier löschen-dann-speichern, und das Speichern war weder
+            // abgewartet noch geprüft. Scheiterte es (Kontingent voll, oder der Worker
+            // wird zwischen Antwort und Schreibvorgang beendet), lag anschließend
+            // WEDER die alte NOCH die neue Fassung im Cache. Offline fand dann auch
+            // der ignoreSearch-Notnagel weiter unten nichts mehr — die App startete
+            // schlicht nicht. Selbstheilung gäbe es nur online.
+            let gesichert = true;
+            try { await shell.put(req, res.clone()); } catch (err) { gesichert = false; }
+            if (gesichert) {
+              try {
+                const keys = await shell.keys();
+                await Promise.all(
+                  keys
+                    .filter((k) => {
+                      const ku = new URL(k.url);
+                      return ku.pathname === url.pathname && ku.search !== url.search;
+                    })
+                    .map((k) => shell.delete(k))
+                );
+              } catch (err) {}
+            }
           }
           return res;
         } catch (err) {

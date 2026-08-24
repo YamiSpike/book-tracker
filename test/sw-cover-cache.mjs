@@ -160,6 +160,48 @@ console.log('-- Cover-Treffer kommt weiter aus dem Cache ------------');
 }
 
 console.log('');
+console.log('-- Shell: neue Fassung sichern, DANN die alte werfen ---');
+{
+  // Beim Versionswechsel holt der SW jede ?v=-Datei neu. Vorher wurde erst geloescht
+  // und dann (ohne Abwarten, ohne Fehlerbehandlung) geschrieben. Schlug das Schreiben
+  // fehl — Kontingent voll —, lag WEDER die alte NOCH die neue Fassung im Cache, und
+  // die App startete offline nicht mehr.
+  const { hoerer, cacheStorage, ctx } = ladeSW();
+  const shell = await cacheStorage.open('buecher-shell');
+  await shell.put({ url: 'https://hon.test/js/app.js?v=3.5' }, {});
+  pruefe('Ausgangslage: alte Fassung liegt im Shell-Cache',
+    cacheStorage._roh.get('buecher-shell').has('https://hon.test/js/app.js?v=3.5'));
+
+  // Schreiben scheitern lassen, wie bei vollem Speicher
+  const echtesOpen = cacheStorage.open.bind(cacheStorage);
+  ctx.caches.open = async (name) => {
+    const c = await echtesOpen(name);
+    if (name === 'buecher-shell') c.put = async () => { throw new Error('QuotaExceededError'); };
+    return c;
+  };
+
+  await hole(hoerer, 'https://hon.test/js/app.js?v=3.6');
+
+  const drin = cacheStorage._roh.get('buecher-shell');
+  pruefe('alte Fassung ueberlebt den gescheiterten Schreibvorgang',
+    drin.has('https://hon.test/js/app.js?v=3.5'), [...drin.keys()].join(', ') || '(leer)');
+  pruefe('der Cache ist nicht leer zurueckgeblieben', drin.size > 0, drin.size + ' Eintraege');
+}
+
+console.log('');
+console.log('-- Shell: bei Erfolg wird die alte Fassung entsorgt ----');
+{
+  const { hoerer, cacheStorage } = ladeSW();
+  const shell = await cacheStorage.open('buecher-shell');
+  await shell.put({ url: 'https://hon.test/js/app.js?v=3.5' }, {});
+  await hole(hoerer, 'https://hon.test/js/app.js?v=3.6');
+  const drin = cacheStorage._roh.get('buecher-shell');
+  pruefe('neue Fassung ist da', drin.has('https://hon.test/js/app.js?v=3.6'), [...drin.keys()].join(', '));
+  pruefe('alte Fassung ist weg', !drin.has('https://hon.test/js/app.js?v=3.5'), [...drin.keys()].join(', '));
+  pruefe('pro Datei bleibt genau eine Fassung', drin.size === 1, drin.size + ' Eintraege');
+}
+
+console.log('');
 console.log((bad === 0 ? 'BESTANDEN' : 'FEHLGESCHLAGEN') + ': ' + ok + ' ok, ' + bad + ' fehlerhaft');
 console.log('');
 process.exit(bad === 0 ? 0 : 1);

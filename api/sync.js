@@ -6,8 +6,19 @@ import { getRedis, verifyPayload, readBody, rateLimit } from "./_lib.js";
 // Sammlung statt für alles zusammen gilt → deutlich mehr Daten möglich.
 // Abwärtskompatibel: der alte Einzel-Blob (String) wird beim ersten Schreiben
 // verlustfrei in einen Hash migriert; der Voll-Modus funktioniert weiterhin.
-function dataKey(req, email) {
-  const app = String((req.query && req.query.app) || "books").replace(/[^a-z0-9_-]/gi, "").slice(0, 24) || "books";
+// Diese Bereitstellung bedient AUSSCHLIESSLICH die Bücher-App. Der Wert kam bisher
+// ungeprüft aus der Query — und das Token enthält nur {email, pv}, keinen App-Bezug.
+// Da die Schwester-Apps (Nihongo/Japan) dieselbe Upstash-DB benutzen, hätte ein
+// hier ausgestelltes Token über ?app=nihongo deren Datentopf lesen UND leeren
+// können (Voll-Modus mit leerem data löscht per hdel alle Felder). Der Client
+// schickt ohnehin immer ?app=books; die Freiheit war reines Risiko ohne Nutzen.
+const ERLAUBTE_APPS = new Set(["books"]);
+
+function appOf(req) {
+  const roh = String((req.query && req.query.app) || "books").replace(/[^a-z0-9_-]/gi, "").slice(0, 24);
+  return ERLAUBTE_APPS.has(roh) ? roh : null;
+}
+function dataKey(app, email) {
   return `data:${app}:${email}`;
 }
 
@@ -46,7 +57,9 @@ export default async function handler(req, res) {
   const user = await redis.get(`user:${email}`);
   if (user && (user.pwdAt || 0) > (p.pv || 0)) return res.status(401).json({ error: "Sitzung abgelaufen. Bitte neu anmelden." });
 
-  const key = dataKey(req, email);
+  const app = appOf(req);
+  if (!app) return res.status(400).json({ error: "Unbekannte App." });
+  const key = dataKey(app, email);
 
   if (req.method === "GET") {
     const t = await redis.type(key);
