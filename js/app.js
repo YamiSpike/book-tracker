@@ -73,7 +73,13 @@
   function lib() {
     if (sharedData) return sharedData;
     if (_libCache) return _libCache;
-    _libCache = loadBooks().filter(function (b) { return !b.deleted; });
+    // Einträge ohne Titel werden ausgeblendet — nicht gelöscht. Ein solcher Satz ist
+    // nicht darstellbar und nicht identifizierbar, und JEDER Render-Pfad greift auf
+    // b.title zu (coverHtml, die Warteschlange, Serien, das Detail-Modal). Ein
+    // einziger unvollständiger Eintrag riss vorher die ganze Startseite mit
+    // („Cannot read properties of undefined (reading 'slice')"). Er bleibt im
+    // Speicher, damit ein späterer Abgleich ihn noch reparieren kann.
+    _libCache = loadBooks().filter(function (b) { return b && !b.deleted && b.title; });
     return _libCache;
   }
 
@@ -295,7 +301,12 @@
 
   // Titel+Autor-Schlüssel zum Duplikat-Erkennen (gleiche Bücher haben oft mehrere Volume-IDs)
   function bookKey(b) {
-    return (b.title + '|' + (b.authors[0] || '')).toLowerCase().replace(/[^a-zäöüß0-9|]/g, '');
+    // Defensiv gegen unvollständige Datensätze: ein Grabstein oder ein schlampiger
+    // Import hat weder title noch authors. Vorher warf b.authors[0] hier einen
+    // TypeError, der die ganze Trefferliste abbrach — für einen Schlüssel, der
+    // nur zum Duplikat-Erkennen dient, ist das ein absurd hoher Preis.
+    var autor = (Array.isArray(b.authors) && b.authors[0]) || '';
+    return (String(b.title || '') + '|' + autor).toLowerCase().replace(/[^a-zäöüß0-9|]/g, '');
   }
   function inLib(b) {
     if (bookIndex()[b.id]) return true;
@@ -328,8 +339,16 @@
     var idx = all.findIndex(function (x) { return x.id === b.id; });
     var now = Date.now();
     if (idx >= 0) {
-      var st = status || all[idx].status;
-      all[idx] = Object.assign({}, all[idx], statusDates(all[idx], st, now), { status: st, deleted: false, updatedAt: now });
+      var vorher = all[idx];
+      var st = status || vorher.status;
+      // War der Eintrag ein Grabstein, fehlen ihm Titel, Autor·in und Cover —
+      // deleteBooksByIds() streicht sie beim Löschen weg und lässt nur
+      // { id, deleted, updatedAt } stehen. Dann muss der frisch aus der Suche
+      // stammende Datensatz die Grundlage sein. Sonst entsteht ein sichtbarer
+      // Eintrag ohne Titel, und die nächste Suche wirft in bookKey() über
+      // b.authors[0] einen TypeError — die Trefferliste bleibt dann leer.
+      var basis = vorher.deleted ? Object.assign({}, b, { id: vorher.id }) : vorher;
+      all[idx] = Object.assign({}, basis, statusDates(vorher, st, now), { status: st, deleted: false, updatedAt: now });
     } else {
       var st2 = status || 'read';
       all.push(Object.assign({}, b, statusDates(null, st2, now), { status: st2, rating: 0, note: '', progress: 0, tags: [], quotes: [], addedAt: now, updatedAt: now }));
@@ -366,6 +385,16 @@
     if (!img || img.tagName !== 'IMG') return;
     var cfg = COVER_ERSATZ[img.getAttribute('data-fallback')];
     if (!cfg || !img.parentNode) return;
+    // Dem Service Worker sagen, dass dieses Cover kaputt ist. Er kann das selbst
+    // nicht erkennen: <img> lädt no-cors, und eine opaque Antwort verrät ihren
+    // Status nicht — auch ein 404 sieht dort aus wie ein Bild. Ohne diese Meldung
+    // bliebe die Fehlantwort dauerhaft im Cover-Cache liegen, selbst wenn sich die
+    // Quelle längst erholt hat.
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.controller && img.src) {
+        navigator.serviceWorker.controller.postMessage({ type: 'COVER_KAPUTT', url: img.src });
+      }
+    } catch (err) {}
     var d = document.createElement('div');
     d.className = cfg.klasse;
     d.innerHTML = cfg.innen;          // feste Zeichenketten von oben, keine Fremddaten
@@ -606,7 +635,7 @@
         + '<span class="tbr-pos">' + (i + 1) + '</span>'
         + (b.cover ? '<img class="tbr-cover" loading="lazy" width="34" height="50" src="' + esc(b.cover) + '" alt="" />' : '<span class="tbr-cover fallback">📕</span>')
         + '<span class="tbr-meta"><b>' + esc(b.title.slice(0, 60)) + '</b>'
-        + '<span class="muted">' + esc((b.authors || [])[0] || '') + (b.pages ? ' · ' + b.pages + ' S.' : '') + (s ? ' · Band ' + s.num : '') + '</span></span>'
+        + '<span class="muted">' + esc((b.authors || [])[0] || '') + (Number(b.pages) > 0 ? ' · ' + Number(b.pages) + ' S.' : '') + (s ? ' · Band ' + s.num : '') + '</span></span>'
         + '<span class="tbr-btns">'
         + '<button class="tbr-b" data-tbrup="' + esc(b.id) + '" aria-label="Nach oben"' + (i === 0 ? ' disabled' : '') + '>▲</button>'
         + '<button class="tbr-b" data-tbrdown="' + esc(b.id) + '" aria-label="Nach unten"' + (i === list.length - 1 ? ' disabled' : '') + '>▼</button>'
@@ -1935,8 +1964,13 @@
     });
 
     // Open-Library-Bücher: Beschreibung lazy nachladen (steckt im Works-Endpoint)
-    if (!b.desc && b.olKey) {
-      fetch('https://openlibrary.org' + b.olKey + '.json')
+    // olKey kommt normalerweise aus der Open-Library-Antwort ("/works/OL123W"),
+    // wird aber im Buch gespeichert und landet über einen JSON-Import auch
+    // ungeprüft aus fremden Dateien hier. Deshalb auf die Form festnageln, bevor
+    // er an den Host geklebt wird — sonst ließe sich die Adresse umbiegen.
+    var olPfad = /^\/[A-Za-z0-9_\/-]{1,80}$/.test(String(b.olKey || '')) ? b.olKey : '';
+    if (!b.desc && olPfad) {
+      fetch('https://openlibrary.org' + olPfad + '.json')
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (w) {
           if (!w || modalBook !== b) return;
@@ -2422,7 +2456,15 @@
     if (zxingLoading) return zxingLoading;
     zxingLoading = new Promise(function (resolve, reject) {
       var s = document.createElement('script');
-      s.src = 'js/vendor/zxing.min.js';
+      // Mit ?v=-Buster, aus zwei Gründen. Ohne ihn fiel die Datei in den
+      // Stale-While-Revalidate-Zweig des Service Workers: (1) sie wurde bei jedem
+      // Aufruf im Hintergrund neu geholt — eine auf ihre Version gepinnte App führte
+      // beim nächsten Scan den Code des NEUEN Deployments aus, ohne dass jemand auf
+      // „Jetzt aktualisieren" getippt hätte; (2) dieser Cache wird bei jedem activate
+      // geleert, der Scanner war also nach jedem Update offline tot.
+      // Mit Buster landet sie im persistenten Shell-Cache und bleibt bei ihrer Version.
+      var bust = String(window.APP_VERSION || '').replace(/^v/, '');
+      s.src = 'js/vendor/zxing.min.js' + (bust ? '?v=' + bust : '');
       s.onload = function () { window.ZXing ? resolve(window.ZXing) : reject(new Error('ZXing nicht geladen')); };
       s.onerror = function () { reject(new Error('ZXing nicht geladen')); };
       document.head.appendChild(s);
@@ -3073,6 +3115,40 @@
   // app-statistik.js einmal nicht lädt: Endlosrekursion statt klarer Fehlermeldung.
   // Das Teilmodul trägt sich selbst ein.
 
+  // Die Teilmodule (js/app-*.js) tragen sich in HonIntern ein. Fehlt eines — Netzfehler
+  // beim Laden, lückenhafter Shell-Cache —, werfen die Weiterleitungen oben reihenweise
+  // TypeErrors. init() bräche gleich beim ersten refreshAll() ab, und zwar STUMM: der
+  // Wurf landet in ready.then(init, init) als unbehandelte Ablehnung, die App bliebe
+  // einfach leer. Für jedes andere Begleitskript prüft app.js die Existenz
+  // (if (window.HonStore), if (window.BKCloud)) — für HonIntern bisher nicht.
+  var PFLICHT_MODULE = {
+    'js/app-statistik.js': 'renderStats',
+    'js/app-quellen.js': 'searchMangas',
+    'js/app-erfolge.js': 'achStats',
+    'js/app-jahr.js': 'openYearReview'
+  };
+  function fehlendeModule() {
+    return Object.keys(PFLICHT_MODULE).filter(function (d) {
+      return typeof HIntern[PFLICHT_MODULE[d]] !== 'function';
+    });
+  }
+  function meldeFehlendeModule(fehlend) {
+    var el = document.getElementById('view-home') || document.body;
+    var box = document.createElement('div');
+    box.className = 'empty';
+    box.innerHTML = '<div class="big">🧩</div>'
+      + '<p><strong>Ein Teil der App wurde nicht geladen.</strong></p>'
+      + '<p class="muted">Fehlt: ' + esc(fehlend.join(', ')) + '</p>'
+      + '<p class="muted">Meist reicht ein Neuladen. Bleibt es dabei, hilft „Jetzt aktualisieren" im Update-Hinweis.</p>';
+    var btn = document.createElement('button');
+    btn.className = 'btn-primary';
+    btn.style.marginTop = '12px';
+    btn.textContent = '🔄 Neu laden';
+    btn.addEventListener('click', function () { location.reload(); });
+    box.appendChild(btn);
+    el.insertBefore(box, el.firstChild);
+  }
+
   // Erst starten, wenn der IndexedDB-Speicher geladen/migriert ist (sonst wäre die Sammlung kurz leer)
   var gestartet = false;
   function boot() {
@@ -3081,6 +3157,8 @@
     // zweimal. js/cloud.js schützt sich an derselben Stelle genauso.
     if (gestartet) return;
     gestartet = true;
+    var fehlend = fehlendeModule();
+    if (fehlend.length) { meldeFehlendeModule(fehlend); return; }
     var ready = (window.HonStore && window.HonStore.ready) ? window.HonStore.ready : Promise.resolve();
     ready.then(init, init);
     // Vor dem Schließen die Bücher sicher persistieren (falls ein Schreibvorgang noch aussteht)

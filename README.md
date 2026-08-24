@@ -100,6 +100,10 @@ dessen eigene CSP für seine `fetch()`-Aufrufe — der Cover-Cache wäre unter e
 JSON-/Goodreads-Import auch von beliebigen Fremdadressen — eine Positivliste würde
 importierte Sammlungen still zerlegen. Der eigentliche Schutz sitzt bei `script-src 'self'`.
 
+Die `Cache-Control`-Regel in `vercel.json` steht für **`/` und `/index.html`**. Die App wird
+ausschließlich als `/` geladen — `manifest.json` setzt `start_url: "./"`, und der Update-Banner
+baut seine URL aus `location.href`. Die Regel allein für `/index.html` griff deshalb nie.
+
 ## Versionierung
 
 Bei jedem Release synchron bumpen: `APP_VERSION` in `js/update.js` · Cache-Key in `sw.js` · `version.json` · Versionsangaben in `index.html`.

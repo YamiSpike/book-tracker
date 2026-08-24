@@ -6,7 +6,7 @@
    - Eine neue Version kommt AUSSCHLIESSLICH über den Update-Banner: dessen
      Klick lädt mit ?_v=… → Netz erzwungen → Shell erneuert.
    - Cover-Cache (buecher-covers-v1) bleibt eigenständig und überlebt Updates. */
-const CACHE = 'hon-v3-7';
+const CACHE = 'hon-v3-8';
 // Cover-Cache ist EIGENSTÄNDIG versioniert und überlebt App-Updates —
 // sonst wären nach jedem Versions-Bump alle Offline-Cover weg
 const COVER_CACHE = 'buecher-covers-v1';
@@ -18,8 +18,15 @@ const COVER_CACHE = 'buecher-covers-v1';
 // Ein paar Cover neu zu laden ist billig; die Bücher zu verlieren wäre es nicht.
 const COVER_MAX = 3000;        // Regelbetrieb: so viele Cover bleiben liegen
 const COVER_MAX_ENG = 1200;    // bei Speicherdruck: härter beschneiden
-const COVER_PRUEF_ALLE = 60;   // erst nach so vielen Neuzugängen nachzählen
+const COVER_PRUEF_ALLE = 60;   // danach erneut nachzählen
 let coverNeu = 0, coverPutzt = false;
+// Beim ERSTEN neu gecachten Cover jeder Worker-Runde wird immer nachgezählt.
+// Ohne das griff der Deckel im Alltag so gut wie nie: coverNeu ist eine ganz normale
+// Modulvariable, und der Browser beendet einen untätigen Service Worker nach wenigen
+// Sekunden — beim nächsten Start beginnt der Zähler wieder bei 0 und erreichte die 60
+// praktisch nur beim Massen-Nachladen. Der Cache wuchs also weiter, obwohl der Deckel
+// eingebaut war. Ein Worker-Start ist der natürliche, häufige Prüfzeitpunkt.
+let coverErstpruefung = true;
 
 // Nutzt diese Herkunft schon einen Großteil ihres Kontingents?
 async function speicherKnapp() {
@@ -54,16 +61,16 @@ async function coverBeschneiden() {
 // sonst würde jeder Deploy still updaten.
 const SHELL = 'buecher-shell';
 // MUSS mit den ?v=-Bustern in index.html übereinstimmen (Versions-Trias!)
-const BUST = '?v=3.7';
+const BUST = '?v=3.8';
 
 // Kosmetische Statik (unkritisch fürs Versions-Pinning) — versionierter Cache
 const PRECACHE = [
   './manifest.json',
-  './icon.svg?v=3.7',
+  './icon.svg?v=3.8',
   './img/fuku.png',
-  './icons/icon-180.png?v=3.7',
-  './icons/icon-192.png?v=3.7',
-  './icons/icon-512.png?v=3.7',
+  './icons/icon-180.png?v=3.8',
+  './icons/icon-192.png?v=3.8',
+  './icons/icon-512.png?v=3.8',
 ];
 
 // App-Code: gehört zur gepinnten Shell-Version → persistenter SHELL-Cache.
@@ -119,10 +126,40 @@ self.addEventListener('activate', (e) => {
       // Alle offenen Tabs informieren → App prüft version.json und zeigt ggf. den Update-Banner
       const clients = await self.clients.matchAll({ type: 'window' });
       clients.forEach((c) => c.postMessage({ type: 'SW_ACTIVATED', cache: CACHE }));
+
+      // Lücken in der Shell schließen. Beim install wird jede Datei einzeln mit
+      // .catch(() => null) hinzugefügt — schlägt eine fehl, gilt die Shell trotzdem
+      // als befüllt, weil nur auf './' geprüft wird. Die fehlende Datei würde sonst
+      // erst beim ersten Zugriff nachgeholt, und weil ?v= kein Inhalts-Hash ist,
+      // brächte sie nach einem zwischenzeitlichen Deploy NEUEN Code unter der ALTEN
+      // Versionsnummer. Hier ist die Version noch stimmig — der richtige Moment.
+      try {
+        const s = await caches.open(SHELL);
+        if (await s.match('./')) {
+          for (const a of SHELL_ASSETS) {
+            if (!(await s.match(a))) await s.add(a).catch(() => null);
+          }
+        }
+      } catch (err) {}
+
       // Zum Schluss den Cover-Cache auf Maß bringen (blockiert den Start nicht)
       await coverBeschneiden();
     })()
   );
+});
+
+// Cover werden per <img> geholt, also im Modus no-cors: JEDE Antwort kommt opaque
+// zurück — auch 404, 429 und 503. res.ok ist dann immer false, der Status nicht
+// auslesbar. Der Cover-Zweig unten muss opaque trotzdem einlagern (sonst gäbe es
+// keine Offline-Cover), kann eine Fehlantwort dabei aber nicht erkennen. Da der
+// Zweig strikt cache-first ist, bliebe ein kaputtes Bild für immer liegen.
+// Lösung: die einzige Stelle, die es WEISS, sagt Bescheid — der Cover-Ausfall-
+// Handler in js/app.js meldet die Adresse hierher, und sie fliegt aus dem Cache.
+// Beim nächsten Anzeigen wird neu geholt.
+self.addEventListener('message', (e) => {
+  const d = e.data;
+  if (!d || d.type !== 'COVER_KAPUTT' || !d.url) return;
+  e.waitUntil(caches.open(COVER_CACHE).then((c) => c.delete(d.url)).catch(() => {}));
 });
 
 self.addEventListener('fetch', (e) => {
@@ -154,7 +191,8 @@ self.addEventListener('fetch', (e) => {
             c.put(req, res.clone()).catch(() => {});
             // Nur gelegentlich nachzählen — cache.keys() ist O(n) und hat bei
             // tausenden Covern in einem Bild-Request nichts verloren.
-            if (++coverNeu >= COVER_PRUEF_ALLE) {
+            if (coverErstpruefung || ++coverNeu >= COVER_PRUEF_ALLE) {
+              coverErstpruefung = false;
               coverNeu = 0;
               try { e.waitUntil(coverBeschneiden()); } catch (err2) {}
             }
@@ -186,7 +224,15 @@ self.addEventListener('fetch', (e) => {
         }
         try {
           const res = await fetch(req);
-          if (res && res.status === 200) shell.put('./', res.clone()).catch(() => {});
+          // NUR eine direkte, gleicher-Herkunft-Antwort einbrennen. Eine gefolgte
+          // Weiterleitung liefert ebenfalls status 200 — der Browser lehnt eine
+          // Antwort mit gesetztem redirected-Flag aber ab, wenn sie später aus dem
+          // Cache für eine Navigation zurückgegeben wird („a redirected response
+          // was used for a request whose redirect mode is not follow"). Die App
+          // startete danach gar nicht mehr, auch online nicht.
+          if (res && res.status === 200 && res.type === 'basic' && !res.redirected) {
+            shell.put('./', res.clone()).catch(() => {});
+          }
           return res;
         } catch (err) {
           const hit = await shell.match('./');

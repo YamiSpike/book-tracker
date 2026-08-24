@@ -40,9 +40,11 @@ function macheCacheStorage() {
   };
 }
 
-function ladeSW({ usage = 0, quota = 0 } = {}) {
+function ladeSW({ usage = 0, quota = 0, cacheStorage: vorhanden = null } = {}) {
   const hoerer = {};
-  const cacheStorage = macheCacheStorage();
+  // Ein mitgegebener Cache ueberlebt den "Neustart" des Workers — so laesst sich
+  // nachstellen, dass der Browser den Worker beendet und neu hochfaehrt.
+  const cacheStorage = vorhanden || macheCacheStorage();
   const ctx = {
     caches: cacheStorage,
     URL, Response: class { static error() { return { fehler: true }; } },
@@ -199,6 +201,73 @@ console.log('-- Shell: bei Erfolg wird die alte Fassung entsorgt ----');
   pruefe('neue Fassung ist da', drin.has('https://hon.test/js/app.js?v=3.6'), [...drin.keys()].join(', '));
   pruefe('alte Fassung ist weg', !drin.has('https://hon.test/js/app.js?v=3.5'), [...drin.keys()].join(', '));
   pruefe('pro Datei bleibt genau eine Fassung', drin.size === 1, drin.size + ' Eintraege');
+}
+
+console.log('');
+console.log('-- Der Deckel greift auch bei kurzen Worker-Runden -----');
+{
+  // Der Browser beendet einen untaetigen Service Worker nach Sekunden. Haengt das
+  // Nachzaehlen allein an einem Modulzaehler, beginnt der bei jedem Start wieder
+  // bei 0 und erreicht die Schwelle im Alltag nie — der Deckel waere Zierde.
+  // Nachgestellt: viele kurze Runden mit je 5 Covern.
+  const gemeinsam = macheCacheStorage();
+  const vorbefuellen = await gemeinsam.open('buecher-covers-v1');
+  for (let i = 0; i < 3500; i++) await vorbefuellen.put({ url: coverUrl(i) }, {});
+  pruefe('Ausgangslage: 3500 Cover liegen ueber dem Deckel', gemeinsam._roh.get('buecher-covers-v1').size === 3500);
+
+  // Eine kurze Runde: neuer Worker, 5 Cover, dann "beendet"
+  const { hoerer } = ladeSW({ cacheStorage: gemeinsam });
+  for (let i = 4000; i < 4005; i++) await hole(hoerer, coverUrl(i));
+  const n = gemeinsam._roh.get('buecher-covers-v1').size;
+  pruefe('schon 5 Cover nach dem Start loesen das Beschneiden aus', n <= 3000 + PRUEF_ALLE, 'Eintraege: ' + n);
+}
+
+console.log('');
+console.log('-- Umgeleitete Antwort nicht als Shell einbrennen ------');
+{
+  // Eine gefolgte Weiterleitung liefert status 200 mit redirected=true. Wird die
+  // spaeter aus dem Cache fuer eine Navigation zurueckgegeben, lehnt der Browser
+  // sie ab — die App startet dann gar nicht mehr, auch online nicht.
+  const { hoerer, cacheStorage, ctx } = ladeSW();
+  ctx.fetch = async () => ({ url: 'https://hon.test/', ok: true, status: 200, type: 'basic', redirected: true, clone: () => ({}) });
+  await hole(hoerer, 'https://hon.test/');
+  const shell = cacheStorage._roh.get('buecher-shell');
+  pruefe('umgeleitete Antwort landet NICHT im Shell-Cache',
+    !shell || !shell.has('https://hon.test/'), shell ? [...shell.keys()].join(', ') : '(kein Cache)');
+
+  // Die saubere Antwort dagegen schon
+  const zweit = ladeSW();
+  zweit.ctx.fetch = async () => ({ url: 'https://hon.test/', ok: true, status: 200, type: 'basic', redirected: false, clone: () => ({}) });
+  await hole(zweit.hoerer, 'https://hon.test/');
+  pruefe('direkte Antwort wird eingebrannt',
+    zweit.cacheStorage._roh.get('buecher-shell').size > 0);
+}
+
+console.log('');
+console.log('-- Kaputtes Cover fliegt auf Zuruf aus dem Cache -------');
+{
+  // Cover kommen no-cors, also opaque: der SW kann 404 nicht von einem Bild
+  // unterscheiden. Die App meldet den Ausfall deshalb per Nachricht.
+  const { hoerer, cacheStorage } = ladeSW();
+  const url = coverUrl(42);
+  await hole(hoerer, url);
+  pruefe('Ausgangslage: Cover liegt im Cache', cacheStorage._roh.get('buecher-covers-v1').has(url));
+
+  pruefe('der Worker hoert auf Nachrichten', typeof hoerer.message === 'function');
+  if (hoerer.message) {
+    const warte = [];
+    hoerer.message({ data: { type: 'COVER_KAPUTT', url }, waitUntil: (p) => warte.push(p) });
+    await Promise.all(warte);
+    pruefe('gemeldetes Cover ist danach weg', !cacheStorage._roh.get('buecher-covers-v1').has(url),
+      [...cacheStorage._roh.get('buecher-covers-v1').keys()].join(', ') || '(leer)');
+
+    // Fremde Nachrichten duerfen nichts anfassen
+    await hole(hoerer, coverUrl(43));
+    const w2 = [];
+    hoerer.message({ data: { type: 'IRGENDWAS' }, waitUntil: (p) => w2.push(p) });
+    await Promise.all(w2);
+    pruefe('unbekannte Nachricht raeumt nichts weg', cacheStorage._roh.get('buecher-covers-v1').has(coverUrl(43)));
+  }
 }
 
 console.log('');

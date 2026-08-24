@@ -12,6 +12,12 @@ export default async function handler(req, res) {
 
   const { email, password } = readBody(req);
   const e = norm(email);
+  // Zweite Bremse pro KONTO. Das IP-Limit allein hilft nicht gegen verteilte
+  // Versuche: die E-Mail ist ueber die Schwester-Apps bekannt, und ein Angreifer
+  // mit vielen Adressen haette pro IP je 15 Versuche frei. 20 pro Stunde je Konto
+  // stoert niemanden, der sein eigenes Passwort sucht.
+  if (e && !(await rateLimit(`loginacct:${e}`, 20, 3600)))
+    return res.status(429).json({ error: "Zu viele Anmeldeversuche fuer dieses Konto. Bitte spaeter erneut." });
   const user = await redis.get(`user:${e}`);
   // Konstante Laufzeit: auch bei nicht existentem Konto einen bcrypt-Vergleich
   // ausführen (gegen Dummy-Hash), damit die Antwortzeit keine Existenz verrät.

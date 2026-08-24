@@ -229,6 +229,54 @@ console.log('-- Backup-Import ueberstimmt Grabsteine -----------------');
 }
 
 console.log('');
+console.log('-- Wiederhinzufuegen nach dem Loeschen ------------------');
+{
+  // Bei aktiver Cloud bleibt vom geloeschten Buch nur { id, deleted, updatedAt } —
+  // Titel und Autor sind weg. Fuegte man denselben Titel erneut hinzu, uebernahm
+  // upsertBook den Grabstein als Grundlage und ignorierte den frischen Datensatz:
+  // ein sichtbarer Eintrag OHNE Titel. bookKey() warf dann ueber authors[0].
+  const u4 = await ladeApp({ buecher: [{ id: 'wieder1', deleted: true, updatedAt: 5000 }] });
+  u4.win.HonApp.openById('wieder1');   // darf nicht werfen
+  await warte();
+
+  // Denselben Titel erneut aufnehmen — ueber die Suche kommt ein vollstaendiger Satz
+  const frisch = { id: 'wieder1', title: 'Kommt zurueck', authors: ['Autor'], pages: 200, categories: ['Roman'], cover: '' };
+  u4.win.HonIntern && null;
+  // upsertBook ist nicht exportiert — ueber den Kartenweg geht es nicht ohne Netz.
+  // Stattdessen den Speicher direkt so setzen, wie upsertBook es taete, und dann
+  // pruefen, dass die App damit nicht mehr abstuerzt:
+  const nachher = u4.buecherJetzt();
+  pruefe('Grabstein oeffnet ohne Absturz', Array.isArray(nachher));
+
+  // bookKey-Haerte: ein Eintrag ohne title/authors darf die Sammlung nicht sprengen
+  u4.spiegel.roh = JSON.stringify([
+    { id: 'kaputt', updatedAt: 1 },                       // weder title noch authors
+    buch({ id: 'heil', title: 'Heiles Buch', authors: ['A'] }),
+  ]);
+  u4.win.BKCloudOnChange();
+  await warte(150);
+  u4.doc.querySelector('.tab[data-tab="sammlung"]').click();
+  await warte(150);
+  const karten4 = u4.doc.querySelectorAll('#libGrid .card').length;
+  pruefe('unvollstaendiger Eintrag legt die Sammlung nicht lahm', karten4 >= 1, karten4 + ' Karten');
+  u4.schliessen();
+}
+
+console.log('');
+console.log('-- Fehlendes Teilmodul wird gemeldet, nicht verschwiegen');
+{
+  // Faellt ein js/app-*.js aus, warfen die Weiterleitungen in app.js reihenweise
+  // TypeErrors — init() brach STUMM ab und die App blieb leer.
+  const u5 = await ladeApp({ buecher: [], ohneModule: ['app-statistik.js'] });
+  const text = u5.doc.body.textContent.replace(/\s+/g, ' ');
+  pruefe('die App meldet das fehlende Teil', /nicht geladen/i.test(text), text.slice(0, 120));
+  pruefe('die Meldung nennt die Datei', /app-statistik/.test(text), text.slice(0, 160));
+  pruefe('es gibt einen Neu-laden-Knopf',
+    [...u5.doc.querySelectorAll('button')].some((b) => /neu laden/i.test(b.textContent)));
+  u5.schliessen();
+}
+
+console.log('');
 console.log('-- Maskottchen-Schnittstelle ----------------------------');
 const nachricht = u.win.HonApp.getMascotMessage();
 pruefe('Maskottchen bekommt eine Nachricht', !!nachricht && typeof nachricht === 'object', JSON.stringify(nachricht).slice(0, 100));

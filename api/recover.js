@@ -46,24 +46,31 @@ export default async function handler(req, res) {
 
   // Fehlversuchszähler pro Konto: nach 5 falschen Code-Eingaben wird der Reset-
   // Code invalidiert → verhindert Durchprobieren des 6-stelligen Codes (Brute-Force).
-  const failKey = `resetfail:${e}`;
-  const bumpFail = async () => { const n = await redis.incr(failKey); if (n === 1) await redis.expire(failKey, 900); if (n >= 5) await redis.del(`reset:${e}`); };
+  // GETRENNTE Zaehler je Code-Art. Vorher zaehlte ein falscher Wiederherstellungs-
+  // Code auf denselben Topf wie ein falscher E-Mail-Code — fuenf Fehlgriffe beim
+  // langen Code loeschten damit den frisch zugestellten 6-stelligen Reset-Code,
+  // obwohl der nie ausprobiert wurde. Nur der E-Mail-Zaehler darf ihn entwerten.
+  const failKeyMail = `resetfail:${e}`;
+  const failKeyCode = `recfail:${e}`;
+  const bumpMail = async () => { const n = await redis.incr(failKeyMail); if (n === 1) await redis.expire(failKeyMail, 900); if (n >= 5) await redis.del(`reset:${e}`); };
+  const bumpCode = async () => { const n = await redis.incr(failKeyCode); if (n === 1) await redis.expire(failKeyCode, 900); };
 
   if (action === "code") {
     if (!user || !user.recoveryHash) return res.status(401).json({ error: "E-Mail oder Code falsch." });
     const ok = await bcrypt.compare(canon(code), user.recoveryHash);
-    if (!ok) { await bumpFail(); return res.status(401).json({ error: "Wiederherstellungs-Code falsch." }); }
+    if (!ok) { await bumpCode(); return res.status(401).json({ error: "Wiederherstellungs-Code falsch." }); }
   } else if (action === "email") {
     const stored = await redis.get(`reset:${e}`);
     if (!stored) return res.status(401).json({ error: "Code abgelaufen oder ungültig. Bitte neu anfordern." });
     const ok = await bcrypt.compare(String(code || "").trim(), stored);
-    if (!ok) { await bumpFail(); return res.status(401).json({ error: "Code falsch." }); }
+    if (!ok) { await bumpMail(); return res.status(401).json({ error: "Code falsch." }); }
     if (!user) return res.status(401).json({ error: "Konto nicht gefunden." });
     await redis.del(`reset:${e}`);
   } else {
     return res.status(400).json({ error: "Unbekannte Aktion." });
   }
-  await redis.del(failKey);
+  await redis.del(failKeyMail);
+  await redis.del(failKeyCode);
 
   const hash = await bcrypt.hash(newPassword, 10);
   const recoveryCode = genRecovery();
