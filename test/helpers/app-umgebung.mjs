@@ -81,8 +81,13 @@ export async function ladeApp({ buecher = [], einstellungen = null } = {}) {
     }
   }
 
-  // DOMContentLoaded nachreichen, falls ein Skript darauf wartet
-  win.document.dispatchEvent(new win.Event('DOMContentLoaded', { bubbles: true }));
+  // DOMContentLoaded NUR nachreichen, wenn das Dokument noch laedt. jsdom feuert
+  // das Ereignis selbst; ein zweites Mal von Hand liesse boot() in app.js erneut
+  // laufen — init() wuerde jeden Klick-Horcher ein zweites Mal registrieren, und
+  // jede Aktion feuerte doppelt. Das hat einen Import-Test in die Irre gefuehrt.
+  if (win.document.readyState === 'loading') {
+    win.document.dispatchEvent(new win.Event('DOMContentLoaded', { bubbles: true }));
+  }
   await new Promise((r) => setTimeout(r, 60));
 
   return {

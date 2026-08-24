@@ -14,6 +14,11 @@
   // { v, titel, punkte: [ [Icon, Überschrift, Erklärung], … ] }
   // v muss exakt dem Präfix von APP_VERSION entsprechen (z. B. "v39").
   var CHANGELOG = [
+    { v: "v3.7", titel: "Eine Falle entschärft", punkte: [
+      ["🛟", "„Alles löschen“ ohne Konto räumte später die Cloud leer", "Wer die Sammlung löschte, während kein Cloud-Konto verbunden war, hinterließ eine unsichtbare Notiz „hier wurde gelöscht“. Beim späteren Anmelden wurde diese Notiz ernst genommen: die Sammlung aus der Cloud kam nicht an — und wurde stattdessen mit dem leeren Stand überschrieben. Der Hinweis im Löschen-Fenster sagte ausdrücklich „nur auf diesem Gerät“. Behoben; die Notiz entsteht jetzt nur noch mit verbundenem Konto und merkt sich, zu welchem."],
+      ["📴", "Die App startet auch offline zuverlässiger", "Beim Update wurde die alte Fassung einer Datei gelöscht, bevor die neue sicher gespeichert war. Ging beim Speichern etwas schief — etwa wenn der Browserspeicher voll ist —, fehlten hinterher beide. Offline blieb die App dann leer. Jetzt wird erst gesichert, dann aufgeräumt."],
+      ["🔐", "Der Sync bleibt bei seiner App", "Die Schnittstelle nahm bisher entgegen, für welche App sie Daten liefern soll. Da Bücher-, Japan- und Nihongo-App dieselbe Datenbank benutzen, hätte ein abhandengekommener Zugang damit weiter gereicht als nötig. Sie bedient jetzt nur noch die Bücher."]
+    ]},
     { v: "v3.6", titel: "Umbau im Maschinenraum", punkte: [
       ["🧱", "Die App ist in Bausteine zerlegt", "Der Programmcode steckte zu einem großen Teil in einer einzigen, sehr langen Datei. Statistik, Manga- und Zeitschriften-Quellen, Jahresrückblick und Abzeichen sind jetzt eigene Bausteine. An der App ändert sich nichts — sie lädt nur in Stücken, die man einzeln überblicken und prüfen kann."],
       ["🧪", "Ein Sicherheitsnetz davor", "Vor dem Umbau ist eine Testreihe entstanden, die die App fernsteuert und ihr Verhalten festhält: Sammlung, Filter, Sortierung, Statistik, Detailfenster, Serien, Duplikate. Dieselbe Reihe läuft nach dem Umbau unverändert durch — deshalb wissen wir, dass nichts verrutscht ist."]

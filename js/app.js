@@ -2193,20 +2193,46 @@
         var j = JSON.parse(rd.result);
         var arr = Array.isArray(j) ? j : (j.books || []);
         if (!Array.isArray(arr)) throw new Error('Format');
-        var all = loadBooks(), added = 0;
+        var all = loadBooks(), added = 0, wieder = 0, aktualisiert = 0;
+        var jetzt = Date.now();
         // ID-Index einmal aufbauen → O(n) statt O(n²) bei großen Backups
         var byId = Object.create(null);
         for (var i = 0; i < all.length; i++) byId[all[i].id] = i;
         arr.forEach(function (b) {
           if (!b || !b.id || !b.title) return;
           var idx = byId[b.id];
-          if (idx !== undefined) { if ((b.updatedAt || 0) > (all[idx].updatedAt || 0)) all[idx] = b; }
-          else { byId[b.id] = all.length; all.push(b); added++; }
+          if (idx === undefined) { byId[b.id] = all.length; all.push(b); added++; return; }
+          var da = all[idx];
+          if (da.deleted) {
+            // Ein Import ist eine ausdrückliche Ansage: der Nutzer stellt ein Backup
+            // wieder her. Das muss eine Löschung überstimmen können — sonst versagt
+            // genau der Rettungsweg nach einem versehentlichen Löschen. Der Grabstein
+            // trägt nämlich den JÜNGEREN Zeitstempel (den Löschzeitpunkt) und gewinnt
+            // den Vergleich unten immer.
+            // Der frische Zeitstempel ist Pflicht: mit dem alten aus dem Backup würde
+            // der Grabstein beim nächsten Abgleich auf den anderen Geräten erneut
+            // gewinnen und das Buch gleich wieder verschwinden lassen.
+            var neu = {};
+            for (var k in b) if (Object.prototype.hasOwnProperty.call(b, k)) neu[k] = b[k];
+            delete neu.deleted;
+            neu.updatedAt = jetzt;
+            all[idx] = neu;
+            wieder++;
+          } else if ((b.updatedAt || 0) > (da.updatedAt || 0)) {
+            all[idx] = b;
+            aktualisiert++;
+          }
         });
         saveBooks(all);
         recoBuiltFor = '';
         refreshAll();
-        toast(added.toLocaleString('de-DE') + ' Titel importiert ✓');
+        // Ehrlich zählen. Vorher meldete der Import „0 Titel importiert ✓" — ein
+        // Erfolgshaken für einen Vorgang, der nichts bewirkt hat.
+        var teile = [];
+        if (added) teile.push(added.toLocaleString('de-DE') + ' neu');
+        if (wieder) teile.push(wieder.toLocaleString('de-DE') + ' wiederhergestellt');
+        if (aktualisiert) teile.push(aktualisiert.toLocaleString('de-DE') + ' aktualisiert');
+        toast(teile.length ? teile.join(' · ') + ' ✓' : 'Nichts importiert — alles war schon aktuell');
       } catch (e) { toast('Import fehlgeschlagen — keine gültige Backup-Datei'); }
     };
     rd.readAsText(file);
@@ -3041,10 +3067,20 @@
   HIntern.normTitleKey = normTitleKey;
   HIntern.normVolume = normVolume;
   HIntern.olSearch = olSearch;
-  HIntern.money = money;
+  // money NICHT hier ablegen: die Funktion lebt seit v3.6 in js/app-statistik.js,
+  // in dieser Datei steht nur noch die Weiterleitung dorthin. Legte man die hier ab,
+  // zeigte HIntern.money kurzzeitig auf sich selbst — und bliebe so, falls
+  // app-statistik.js einmal nicht lädt: Endlosrekursion statt klarer Fehlermeldung.
+  // Das Teilmodul trägt sich selbst ein.
 
   // Erst starten, wenn der IndexedDB-Speicher geladen/migriert ist (sonst wäre die Sammlung kurz leer)
+  var gestartet = false;
   function boot() {
+    // Nur EINMAL. init() registriert Klick-Horcher; liefe es zweimal, würde jeder
+    // Knopf seine Aktion doppelt auslösen — ein Import liefe zweimal, ein Löschen
+    // zweimal. js/cloud.js schützt sich an derselben Stelle genauso.
+    if (gestartet) return;
+    gestartet = true;
     var ready = (window.HonStore && window.HonStore.ready) ? window.HonStore.ready : Promise.resolve();
     ready.then(init, init);
     // Vor dem Schließen die Bücher sicher persistieren (falls ein Schreibvorgang noch aussteht)

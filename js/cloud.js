@@ -16,8 +16,11 @@
   var PUSH_DEBOUNCE = 2500, POLL_MS = 8000;
 
   // Diese Keys NIE in die Cloud (Caches, Token, Versions-Marker)
+  // bk_wipe_acct bleibt lokal: der Lösch-Marker bk_wipe SELBST geht in die Cloud
+  // (er ist ja die Weitergabe), aber zu welchem Konto er gehört, ist eine reine
+  // Gerätefrage — siehe wipe() und mergeApply().
   var BLOCK = new Set([
-    TOKEN_KEY, EMAIL_KEY, 'bk_app_version', 'bk_cloud_lastsync', 'bk_search_cache'
+    TOKEN_KEY, EMAIL_KEY, 'bk_app_version', 'bk_cloud_lastsync', 'bk_search_cache', 'bk_wipe_acct'
   ]);
   var PREFIX = ['bk_'];
 
@@ -140,12 +143,23 @@
     // Lösch-Marker: Wurde die Sammlung auf EINEM Gerät gelöscht, gilt das überall.
     // Ohne diesen Check holt der Merge die gelöschten Daten sofort wieder zurück.
     var rWipe = parseInt(remote['bk_wipe'] || '0', 10) || 0;
-    var lWipe = parseInt(lsGet('bk_wipe') || '0', 10) || 0;
+    // Der lokale Marker zählt nur, wenn er zu DIESEM Konto gehört. Sonst würde eine
+    // Löschung in Konto A beim Anmelden in Konto B dessen Cloud-Sammlung verwerfen.
+    // Marker ohne Kontonotiz stammen aus einer Version vor v3.7 — die wurden damals
+    // auch ohne Anmeldung gesetzt und sind deshalb nicht vertrauenswürdig.
+    var lWipeAcct = lsGet('bk_wipe_acct');
+    var lWipe = (lWipeAcct && lWipeAcct === getEmail())
+      ? (parseInt(lsGet('bk_wipe') || '0', 10) || 0)
+      : 0;
     var skipData = false;
     if (rWipe > lWipe) {
       // Auf einem anderen Gerät gelöscht → hier ebenfalls löschen
       DATA_KEYS.forEach(function (k) { if (k === 'bk_books') booksClear(); else lsDel(k); });
       lsSet('bk_wipe', String(rWipe));
+      // Kontonotiz mitschreiben, sonst gilt der Marker beim nächsten Abgleich wieder
+      // als fremd (lWipe = 0), der Zweig greift erneut und meldet bei jedem Poll
+      // „Von der Cloud aktualisiert".
+      lsSet('bk_wipe_acct', String(getEmail() || ''));
       skipData = true;
       changed = true;
     } else if (lWipe > rWipe) {
@@ -195,8 +209,17 @@
   function wipe() {
     var now = Date.now();
     DATA_KEYS.forEach(function (k) { if (k === 'bk_books') booksClear(); else lsDel(k); });
-    lsSet('bk_wipe', String(now));
+    // Der Lösch-Marker existiert AUSSCHLIESSLICH, um die Löschung an die anderen
+    // Geräte desselben Kontos weiterzugeben. Ohne Konto gibt es nichts weiterzugeben —
+    // und ein gesetzter Marker wäre eine Falle: beim späteren Anmelden gewinnt in
+    // mergeApply() der Zweig lWipe > rWipe, die Cloud-Sammlung wird verworfen und
+    // gleich darauf mit dem leeren Stand überschrieben. Ein lokales „Alles löschen"
+    // hätte damit die Sammlung in der Cloud mitgerissen. Deshalb: erst prüfen, dann setzen.
     if (!isLoggedIn()) return Promise.resolve(true);
+    lsSet('bk_wipe', String(now));
+    // Zu WELCHEM Konto der Marker gehört. Ohne diese Notiz würde eine Löschung in
+    // Konto A beim Anmelden in Konto B dessen Cloud-Sammlung verwerfen.
+    lsSet('bk_wipe_acct', String(getEmail() || ''));
     lastHash = lightHash();             // Bücher jetzt leer, aber bk_wipe gesetzt
     return push(collectData());         // redis.set überschreibt den kompletten Datensatz
   }
@@ -309,12 +332,19 @@
       // pushDelta: beim ersten Mal (lastFields==null) voll (Migration/Baseline),
       // danach nur geänderte Sammlungen → Gesamtdaten dürfen die 4-MB-Blob-Grenze
       // überschreiten, solange jede EINZELNE Sammlung darunter bleibt.
-      return pushDelta().then(function () {
-        if (changed && typeof global.BKCloudOnChange === 'function') {
-          try { global.BKCloudOnChange(); } catch (e) {}
-        }
-        return { changed: changed };
-      });
+      // Der Rückruf MUSS hier stehen, nicht erst nach dem Push: mergeApply() hat die
+      // zusammengeführte Sammlung bereits in den Speicher geschrieben, und der Rückruf
+      // ist es, der den RAM-Cache von app.js verwirft (invalidateBooks). Bleibt er aus,
+      // arbeitet die App mit dem alten Array weiter — und das nächste saveBooks()
+      // schreibt die frisch eingemergten Bücher wieder weg, auf diesem Gerät UND beim
+      // nächsten erfolgreichen Push auch in der Cloud.
+      // Bis v3.3 fiel das kaum auf, weil pushDelta() bei Ablehnung nur false lieferte.
+      // Seit der ehrlichen 429-Behandlung in v3.4 wirft es — damit wurde aus einer
+      // theoretischen Lücke ein erreichbarer Datenverlust.
+      if (changed && typeof global.BKCloudOnChange === 'function') {
+        try { global.BKCloudOnChange(); } catch (e) {}
+      }
+      return pushDelta().then(function () { return { changed: changed }; });
     });
   }
 

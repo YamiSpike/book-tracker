@@ -181,6 +181,54 @@ pruefe('Bild ohne data-fallback bleibt unangetastet', probe.children[2].tagName 
 probe.remove();
 
 console.log('');
+console.log('-- Backup-Import ueberstimmt Grabsteine -----------------');
+{
+  // Der Rettungsweg nach einem versehentlichen Loeschen. Bei aktivem Cloud-Sync
+  // hinterlaesst das Loeschen Grabsteine (deleted:true) mit dem LOESCH-Zeitpunkt —
+  // also einem juengeren updatedAt als jeder Backup-Eintrag. Ein reiner
+  // Zeitstempel-Vergleich verliert damit immer, und der Import bewirkt nichts.
+  const geloescht = { id: 'g1', deleted: true, updatedAt: 9_000_000 };
+  const u3 = await ladeApp({ buecher: [
+    geloescht,
+    buch({ id: 'b2', title: 'War immer da', authors: ['B'], updatedAt: 1000 }),
+  ]});
+
+  const backup = JSON.stringify([
+    { id: 'g1', title: 'Aus Versehen geloescht', authors: ['A'], status: 'read', pages: 300, updatedAt: 1000 },
+    { id: 'neu1', title: 'Nur im Backup', authors: ['C'], status: 'want', updatedAt: 1000 },
+  ]);
+
+  // FileReader der Umgebung so fuettern, wie es der Datei-Dialog taete
+  const datei = new u3.win.Blob([backup], { type: 'application/json' });
+  const eingabe = u3.doc.getElementById('setImport');
+  pruefe('Import-Schalter ist da', !!eingabe);
+
+  // importJson haengt an einem verborgenen file-input; wir loesen den Weg direkt aus
+  const fileInput = u3.doc.querySelector('input[type="file"]');
+  pruefe('verborgenes Dateifeld vorhanden', !!fileInput, [...u3.doc.querySelectorAll('input')].map((i) => i.type).join(','));
+  if (fileInput) {
+    Object.defineProperty(fileInput, 'files', { value: [datei], configurable: true });
+    fileInput.dispatchEvent(new u3.win.Event('change', { bubbles: true }));
+    await warte(400);
+  }
+
+  const nach = u3.buecherJetzt();
+  const wieder = nach.find((b) => b.id === 'g1');
+  pruefe('geloeschtes Buch kehrt aus dem Backup zurueck',
+    !!wieder && !wieder.deleted && wieder.title === 'Aus Versehen geloescht',
+    JSON.stringify(wieder));
+  pruefe('die Wiederherstellung traegt einen FRISCHEN Zeitstempel',
+    !!wieder && (wieder.updatedAt || 0) > geloescht.updatedAt,
+    wieder && wieder.updatedAt + ' vs. Grabstein ' + geloescht.updatedAt);
+  pruefe('neue Titel aus dem Backup kommen dazu', nach.some((b) => b.id === 'neu1'));
+  pruefe('vorhandene Titel bleiben erhalten', nach.some((b) => b.id === 'b2'));
+
+  const meldung = u3.doc.getElementById('toast').textContent;
+  pruefe('die Meldung nennt die Wiederherstellung', /wiederhergestellt/i.test(meldung), meldung);
+  u3.schliessen();
+}
+
+console.log('');
 console.log('-- Maskottchen-Schnittstelle ----------------------------');
 const nachricht = u.win.HonApp.getMascotMessage();
 pruefe('Maskottchen bekommt eine Nachricht', !!nachricht && typeof nachricht === 'object', JSON.stringify(nachricht).slice(0, 100));

@@ -162,6 +162,35 @@ r = res();
 await sync(req('GET', { tok: tokA }), r);
 pruefe('Sperre gilt pro Konto, nicht global', r.code === 200, 'war ' + r.code);
 
+console.log('');
+console.log('-- api/sync.js: ?app= ist nicht frei waehlbar ----------');
+
+// Die Schwester-Apps (Nihongo/Japan) liegen in DERSELBEN Upstash-DB, und das Token
+// enthaelt nur {email, pv} — keinen App-Bezug. Waere ?app= frei, koennte ein hier
+// ausgestelltes Token deren Datentopf lesen und im Voll-Modus mit leerem data
+// komplett leeren (hdel ueber alle Felder).
+mock.db.set('data:nihongo:anna@example.com', { typ: 'hash', val: { vokabeln: 'geheim' } });
+
+r = res();
+await sync(req('GET', { tok: tokA, query: { app: 'nihongo' } }), r);
+pruefe('GET auf fremde App -> 400', r.code === 400, 'war ' + r.code + ' ' + JSON.stringify(r.body));
+pruefe('fremde Daten werden nicht ausgeliefert',
+  !JSON.stringify(r.body || {}).includes('geheim'), JSON.stringify(r.body).slice(0, 90));
+
+r = res();
+await sync(req('POST', { tok: tokA, query: { app: 'nihongo' }, body: { data: {} } }), r);
+pruefe('POST auf fremde App -> 400', r.code === 400, 'war ' + r.code);
+pruefe('fremder Datentopf bleibt unangetastet',
+  JSON.stringify(mock.db.get('data:nihongo:anna@example.com').val).includes('geheim'),
+  JSON.stringify(mock.db.get('data:nihongo:anna@example.com')));
+
+r = res();
+await sync(req('GET', { tok: tokA, query: { app: 'books' } }), r);
+pruefe('die eigene App funktioniert weiter', r.code === 200, 'war ' + r.code);
+r = res();
+await sync(req('GET', { tok: tokA }), r);
+pruefe('ohne app-Parameter ebenfalls (Standard books)', r.code === 200, 'war ' + r.code);
+
 mock.close();
 console.log('');
 console.log((bad === 0 ? 'BESTANDEN' : 'FEHLGESCHLAGEN') + ': ' + ok + ' ok, ' + bad + ' fehlerhaft');

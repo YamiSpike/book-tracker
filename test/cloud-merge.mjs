@@ -137,6 +137,103 @@ console.log('-- 429: ehrlich melden, nichts anfassen ----------------');
 }
 
 console.log('');
+console.log('-- Gescheiterter Push darf den Merge nicht verwerfen ---');
+{
+  // mergeApply() schreibt die zusammengefuehrte Sammlung SOFORT in den Speicher.
+  // Der Rueckruf BKCloudOnChange verwirft danach den RAM-Cache von app.js. Lief er
+  // nur im Erfolgsfall des Pushes, arbeitete die App nach einem 429 mit dem alten
+  // Array weiter — und das naechste Speichern warf die eingemergten Buecher weg.
+  const { env, cl } = await client();
+  let rueckrufe = 0;
+  env.ctx.BKCloudOnChange = () => { rueckrufe++; };
+  env.store.setRaw(JSON.stringify([buch('lokal', 'Schon hier')]));
+
+  // Pull gelingt, Push wird abgelehnt
+  let anfrage = 0;
+  env.ctx.fetch = async (url, opt = {}) => {
+    anfrage++;
+    if ((opt.method || 'GET') === 'GET') {
+      return { status: 200, ok: true, json: async () => ({ data: { bk_books: JSON.stringify([buch('neu', 'Von Geraet B')]) } }) };
+    }
+    return { status: 429, ok: false, json: async () => ({ error: 'Zu viele Sync-Anfragen.' }) };
+  };
+
+  let fehler = null;
+  await cl.syncNow({}).catch((e) => { fehler = e; });
+
+  const titel = JSON.parse(env.store.getRaw()).map((b) => b.title).sort();
+  pruefe('der Merge landet trotz abgelehntem Push im Speicher',
+    titel.length === 2 && titel.includes('Von Geraet B'), JSON.stringify(titel));
+  pruefe('der Rueckruf feuert trotzdem (verwirft den RAM-Cache)', rueckrufe === 1, 'Aufrufe: ' + rueckrufe);
+  pruefe('der abgelehnte Push wird weiterhin als Fehler gemeldet', !!fehler, String(fehler));
+}
+
+console.log('');
+console.log('-- Loesch-Marker: gehoert er zu DIESEM Konto? ----------');
+
+// Der gefaehrlichste Pfad der ganzen App. Der Marker bk_wipe gibt eine Loeschung an
+// die anderen Geraete weiter. Wird er zur falschen Zeit gesetzt oder falsch gelesen,
+// verwirft mergeApply die Cloud-Sammlung UND ueberschreibt sie mit dem leeren Stand.
+
+// 1) Loeschen OHNE Konto darf keinen Marker hinterlassen
+{
+  const env = umgebung();
+  env.ctx.fetch = machFetch();
+  vm.runInContext(fs.readFileSync('js/cloud.js', 'utf8'), env.ctx);
+  await new Promise((r) => setTimeout(r, 0));
+  // bewusst NICHT anmelden
+  env.store.setRaw(JSON.stringify([buch('x', 'Nur lokal')]));
+  await env.ctx.BKCloud.wipe();
+  pruefe('Loeschen ohne Konto setzt keinen Marker',
+    env.localStorage.getItem('bk_wipe') === null, 'bk_wipe = ' + env.localStorage.getItem('bk_wipe'));
+  pruefe('Loeschen ohne Konto leert trotzdem die Sammlung',
+    JSON.parse(env.store.getRaw()).length === 0, env.store.getRaw().slice(0, 40));
+
+  // ... und die Cloud-Sammlung kommt beim spaeteren Anmelden vollstaendig an
+  env.localStorage.setItem('bk_cloud_token', tok);
+  env.localStorage.setItem('bk_cloud_email', 'clara@example.com');
+  mock.db.set(KEY, { typ: 'hash', val: { bk_books: JSON.stringify([buch('c1', 'Aus der Cloud')]) } });
+  await env.ctx.BKCloud.syncNow({});
+  const nach = JSON.parse(env.store.getRaw());
+  pruefe('spaeteres Anmelden holt die Cloud-Sammlung (war der Datenverlust)',
+    nach.length === 1 && nach[0].title === 'Aus der Cloud', env.store.getRaw().slice(0, 80));
+}
+
+// 2) Loeschen MIT Konto setzt den Marker samt Kontonotiz
+{
+  const { env, cl } = await client();
+  mock.db.set(KEY, { typ: 'hash', val: {} });
+  env.store.setRaw(JSON.stringify([buch('y', 'Weg damit')]));
+  await cl.wipe();
+  pruefe('Loeschen mit Konto setzt den Marker', !!env.localStorage.getItem('bk_wipe'));
+  pruefe('Marker traegt die Kontonotiz',
+    env.localStorage.getItem('bk_wipe_acct') === 'clara@example.com', env.localStorage.getItem('bk_wipe_acct'));
+}
+
+// 3) Marker eines FREMDEN Kontos darf die eigene Cloud-Sammlung nicht verwerfen
+{
+  const { env, cl } = await client();
+  env.localStorage.setItem('bk_wipe', String(Date.now()));
+  env.localStorage.setItem('bk_wipe_acct', 'jemand.anderes@example.com');
+  mock.db.set(KEY, { typ: 'hash', val: { bk_books: JSON.stringify([buch('c2', 'Fremdes Konto, meine Buecher')]) } });
+  await cl.syncNow({});
+  const nach = JSON.parse(env.store.getRaw());
+  pruefe('Marker eines anderen Kontos wird ignoriert',
+    nach.length === 1 && nach[0].title === 'Fremdes Konto, meine Buecher', env.store.getRaw().slice(0, 80));
+}
+
+// 4) Eigener Marker MUSS weiterhin wirken — sonst kaeme das Geloeschte zurueck
+{
+  const { env, cl } = await client();
+  env.localStorage.setItem('bk_wipe', String(Date.now() + 5000));
+  env.localStorage.setItem('bk_wipe_acct', 'clara@example.com');
+  mock.db.set(KEY, { typ: 'hash', val: { bk_books: JSON.stringify([buch('alt', 'Sollte NICHT zurueckkommen')]) } });
+  await cl.syncNow({});
+  pruefe('eigener Marker haelt die Loeschung durch',
+    JSON.parse(env.store.getRaw()).length === 0, env.store.getRaw().slice(0, 60));
+}
+
+console.log('');
 console.log('-- Loesch-Marker aus der Cloud -------------------------');
 {
   const { env, cl } = await client();

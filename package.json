@@ -6,7 +6,7 @@
   "description": "Hon 本 · Bücher Tracker — statische PWA mit Cloud-Sync-Backend (Vercel Serverless + Upstash Redis)",
   "scripts": {
     "dev": "vercel dev",
-    "test": "node test/konsistenz.mjs && node test/api.mjs && node test/cloud-merge.mjs && node test/sw-cover-cache.mjs && node test/app-verhalten.mjs"
+    "test": "node test/konsistenz.mjs && node test/modul-bindung.mjs && node test/freie-bezeichner.mjs && node test/api.mjs && node test/cloud-merge.mjs && node test/sw-cover-cache.mjs && node test/app-verhalten.mjs"
   },
   "dependencies": {
     "@upstash/redis": "^1.38.0",
@@ -14,6 +14,8 @@
     "jsonwebtoken": "^9.0.3"
   },
   "devDependencies": {
+    "acorn": "^8.18.0",
+    "acorn-walk": "^8.3.5",
     "jsdom": "^30.0.1"
   }
 }
