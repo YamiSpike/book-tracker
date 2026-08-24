@@ -14,6 +14,13 @@
   // { v, titel, punkte: [ [Icon, Überschrift, Erklärung], … ] }
   // v muss exakt dem Präfix von APP_VERSION entsprechen (z. B. "v39").
   var CHANGELOG = [
+    { v: "v3.8", titel: "Der Sync traut sich nicht mehr zu viel zu", punkte: [
+      ["🧭", "Erst schauen, dann schreiben", "Konnte die App beim Start nicht mit der Cloud sprechen — Flugmodus, schlechtes Netz, Serverproblem —, schob sie ihren eigenen Stand trotzdem hoch, sobald das Netz zurückkam. Was nur in der Cloud lag, war damit weg. Jetzt wird erst hochgeladen, wenn wenigstens einmal erfolgreich abgeglichen wurde."],
+      ["🔍", "Unlesbare Cloud-Daten stoppen den Sync", "Fehlte ein Hilfsprogramm zum Entpacken, sah die App die Cloud-Sammlung als leer an — und überschrieb sie. Jetzt bricht sie stattdessen ab und sagt, dass ein Neuladen hilft."],
+      ["📢", "Fehler heißen jetzt Fehler", "Antworten wie „Sammlung zu groß“ oder „Server nicht erreichbar“ liefen stumm durch, und die Statuszeile schrieb trotzdem „Synchronisiert ✓“. Man hielt seine Sammlung für gesichert, während seit Tagen nichts mehr ankam."],
+      ["🖼️", "Kaputte Titelbilder bleiben nicht kleben", "Ein Cover, das beim Laden scheiterte, blieb als Fehler gespeichert — auch wenn die Quelle längst wieder lief. Jetzt wird es verworfen und beim nächsten Anschauen neu geholt."],
+      ["📷", "Der Barcode-Scanner überlebt Updates", "Sein Programmteil wurde nach jedem Update aus dem Zwischenspeicher geworfen und war offline nicht mehr da. Jetzt gehört er fest zur installierten Version."]
+    ]},
     { v: "v3.7", titel: "Eine Falle entschärft", punkte: [
       ["🛟", "„Alles löschen“ ohne Konto räumte später die Cloud leer", "Wer die Sammlung löschte, während kein Cloud-Konto verbunden war, hinterließ eine unsichtbare Notiz „hier wurde gelöscht“. Beim späteren Anmelden wurde diese Notiz ernst genommen: die Sammlung aus der Cloud kam nicht an — und wurde stattdessen mit dem leeren Stand überschrieben. Der Hinweis im Löschen-Fenster sagte ausdrücklich „nur auf diesem Gerät“. Behoben; die Notiz entsteht jetzt nur noch mit verbundenem Konto und merkt sich, zu welchem."],
       ["📴", "Die App startet auch offline zuverlässiger", "Beim Update wurde die alte Fassung einer Datei gelöscht, bevor die neue sicher gespeichert war. Ging beim Speichern etwas schief — etwa wenn der Browserspeicher voll ist —, fehlten hinterher beide. Offline blieb die App dann leer. Jetzt wird erst gesichert, dann aufgeräumt."],

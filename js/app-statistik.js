@@ -343,12 +343,12 @@
       + (js.length ? '<div class="journal-timeline">' + js.map(function (e, i) {
           return '<div class="journal-item"><div class="journal-dot"></div>'
             + '<div class="journal-body"><div class="journal-meta">' + fmtDate(e.date)
-            + (e.page ? ' · Seite ' + e.page : '') + '</div>'
+            + (Number(e.page) > 0 ? ' · Seite ' + Number(e.page) : '') + '</div>'
             + (e.text ? '<div class="journal-text">' + esc(e.text) + '</div>' : '')
             + '<button class="journal-del" data-ji="' + (own.journal.length - 1 - i) + '" aria-label="Eintrag löschen">🗑</button></div></div>';
         }).join('') + '</div>' : '')
       + '<div class="journal-add">'
-      + '<input id="journalPage" type="number" inputmode="numeric" placeholder="Seite" value="' + (own.progress || '') + '" />'
+      + '<input id="journalPage" type="number" inputmode="numeric" placeholder="Seite" value="' + (Number(own.progress) || '') + '" />'
       + '<textarea id="journalText" placeholder="Gedanke zum Leseverlauf…" rows="2"></textarea>'
       + '<button class="btn-ghost" id="journalAddBtn">+ Eintrag</button></div>'
       + '</div>';
@@ -467,8 +467,8 @@
         }).join('')
       + '</div>'
       + '<div class="dnf-row"><label for="dnfPageIn">Abgebrochen auf Seite</label>'
-      + '<input id="dnfPageIn" type="number" min="0" inputmode="numeric" placeholder="Seite" value="' + (own.dnfPage || '') + '" />'
-      + (own.pages ? '<span class="muted">von ' + own.pages + '</span>' : '') + '</div>'
+      + '<input id="dnfPageIn" type="number" min="0" inputmode="numeric" placeholder="Seite" value="' + (Number(own.dnfPage) || '') + '" />'
+      + (Number(own.pages) > 0 ? '<span class="muted">von ' + Number(own.pages) + '</span>' : '') + '</div>'
       + '<input id="dnfReasonIn" class="dnf-free" type="text" placeholder="Eigener Grund (optional)" value="' + esc(own.dnfReason || '') + '" />'
       + '</div>';
   }

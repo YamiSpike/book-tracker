@@ -137,6 +137,94 @@ console.log('-- 429: ehrlich melden, nichts anfassen ----------------');
 }
 
 console.log('');
+console.log('-- Der lokale Stand wird nicht zu leicht massgeblich ---');
+
+// 1) Unlesbare Cloud-Daten (LZString fehlt) duerfen NICHT als "Cloud ist leer" gelten
+{
+  const env = umgebung();
+  delete env.ctx.LZString;                    // Entpacker fehlt, wie bei luecken-
+  env.ctx.fetch = machFetch();                // haftem Shell-Cache
+  vm.runInContext(fs.readFileSync('js/cloud.js', 'utf8'), env.ctx);
+  await new Promise((r) => setTimeout(r, 0));
+  env.localStorage.setItem('bk_cloud_token', tok);
+  env.localStorage.setItem('bk_cloud_email', 'clara@example.com');
+  // Cloud haelt einen komprimierten Blob, den dieses Geraet nicht lesen kann
+  mock.db.set(KEY, { typ: 'hash', val: { bk_books_lz: 'lz:UNLESBAR' } });
+
+  let fehler = null;
+  await env.ctx.BKCloud.syncNow({}).catch((e) => { fehler = e; });
+  pruefe('unlesbare Cloud-Daten brechen den Sync ab', !!fehler, String(fehler).slice(0, 90));
+  pruefe('die Meldung nennt das Neuladen', !!fehler && /neu laden/i.test(fehler.message), fehler && fehler.message);
+
+  const cloud = mock.db.get(KEY);
+  pruefe('die Cloud-Sammlung bleibt unangetastet',
+    !!cloud && cloud.val.bk_books_lz === 'lz:UNLESBAR', JSON.stringify(cloud).slice(0, 90));
+
+  // Und ab jetzt darf gar nichts mehr geschrieben werden
+  let zweiter = null;
+  await env.ctx.BKCloud.syncNow({}).catch((e) => { zweiter = e; });
+  pruefe('danach ist der Sync gesperrt', !!zweiter && /nicht lesbar/i.test(zweiter.message), zweiter && zweiter.message);
+}
+
+// 2) Vor dem ersten erfolgreichen Abgleich wird NICHT gepusht
+{
+  const env = umgebung();
+  env.ctx.fetch = machFetch();
+  vm.runInContext(fs.readFileSync('js/cloud.js', 'utf8'), env.ctx);
+  await new Promise((r) => setTimeout(r, 0));
+  env.localStorage.setItem('bk_cloud_token', tok);
+  env.localStorage.setItem('bk_cloud_email', 'clara@example.com');
+  env.store.setRaw(JSON.stringify([buch('nur-lokal', 'Nie abgeglichen')]));
+  mock.db.set(KEY, { typ: 'hash', val: { bk_books: JSON.stringify([buch('cloud', 'In der Cloud')]) } });
+
+  // Start-Abgleich ist nie gelaufen (kein syncNow) — scheduledPush darf schweigen
+  let geschrieben = 0;
+  const echt = env.ctx.fetch;
+  env.ctx.fetch = async (u, o = {}) => { if ((o.method || 'GET') === 'POST') geschrieben++; return echt(u, o); };
+  env.ctx.BKCloud.scheduledPush && env.ctx.BKCloud.scheduledPush();
+  await new Promise((r) => setTimeout(r, 3200));   // ueber PUSH_DEBOUNCE hinaus
+  pruefe('ohne ersten Abgleich wird nichts hochgeladen', geschrieben === 0, 'POSTs: ' + geschrieben);
+  pruefe('die Cloud-Sammlung ist noch da',
+    JSON.stringify(mock.db.get(KEY).val).includes('In der Cloud'), JSON.stringify(mock.db.get(KEY)).slice(0, 80));
+}
+
+// 3) Abmelden vergisst den Delta-Schnappschuss des alten Kontos
+{
+  const { env, cl } = await client();
+  mock.db.set(KEY, { typ: 'hash', val: {} });
+  env.store.setRaw(JSON.stringify([buch('a', 'Konto A')]));
+  await cl.syncNow({});                      // fuellt lastFields
+  cl.logout();
+  // Neues Konto, lokal unveraendert: es MUSS trotzdem voll hochgeladen werden
+  const tokB = makeToken('bert@example.com', 0);
+  env.localStorage.setItem('bk_cloud_token', tokB);
+  env.localStorage.setItem('bk_cloud_email', 'bert@example.com');
+  await cl.syncNow({});
+  // Der Blob liegt komprimiert (bk_books_lz) — zum Pruefen entpacken.
+  const bKey = 'data:books:bert@example.com';
+  const roh = mock.db.has(bKey) ? mock.db.get(bKey).val : null;
+  const blob = roh && (roh.bk_books_lz || roh.bk_books);
+  const klartext = blob && blob.indexOf('lz:') === 0
+    ? env.ctx.LZString.decompressFromUTF16(blob.slice(3))
+    : blob;
+  pruefe('nach Kontowechsel landet die Sammlung im NEUEN Konto',
+    !!klartext && klartext.includes('Konto A'), String(klartext).slice(0, 90));
+}
+
+// 4) Serverfehler jenseits von 401/429 werden gemeldet, nicht verschwiegen
+{
+  const { env, cl } = await client();
+  env.store.setRaw(JSON.stringify([buch('x', 'Grosse Sammlung')]));
+  env.ctx.fetch = async (u, o = {}) => (o.method || 'GET') === 'GET'
+    ? { status: 200, ok: true, json: async () => ({ data: null }) }
+    : { status: 413, ok: false, json: async () => ({ error: 'zu gross' }) };
+  let fehler = null;
+  await cl.syncNow({}).catch((e) => { fehler = e; });
+  pruefe('413 wird als Fehler gemeldet, nicht als Erfolg', !!fehler, String(fehler));
+  pruefe('die Meldung nennt die Groesse', !!fehler && /zu groß/i.test(fehler.message), fehler && fehler.message);
+}
+
+console.log('');
 console.log('-- Gescheiterter Push darf den Merge nicht verwerfen ---');
 {
   // mergeApply() schreibt die zusammengefuehrte Sammlung SOFORT in den Speicher.

@@ -30,6 +30,12 @@
   // Damit erkennt pushDelta(), WELCHE Sammlungen sich geändert haben, und lädt
   // nur diese hoch (statt jedes Mal alles). null = noch kein Voll-Push passiert.
   var lastFields = null;
+  // Hat in dieser Sitzung schon EIN erfolgreicher Abgleich mit der Cloud stattgefunden?
+  // Vorher darf nicht gepusht werden: sonst wird der lokale Stand maßgeblich, ohne je
+  // mit der Cloud verglichen worden zu sein — und ein Voll-Push entfernt serverseitig
+  // alles, was lokal fehlt. Genau das passierte, wenn der Start-Sync scheiterte
+  // (offline gestartet, 5xx, langsame Verbindung): das Intervall pushte trotzdem.
+  var erstSyncOk = false;
 
   // ───── Helfer ─────
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -40,7 +46,12 @@
   function getEmail() { return lsGet(EMAIL_KEY); }
   function isLoggedIn() { return !!getToken(); }
   function store(j) { if (j && j.token) { lsSet(TOKEN_KEY, j.token); lsSet(EMAIL_KEY, j.email || ''); } }
-  function logout() { lsDel(TOKEN_KEY); lsDel(EMAIL_KEY); lastHash = null; refreshStatusLine(); }
+  // lastFields MUSS mit weg: es ist der Feld-Schnappschuss des ABGEMELDETEN Kontos.
+  // Bleibt er stehen, bildet pushDelta() beim naechsten Konto ein Delta dagegen —
+  // hat sich lokal nichts geaendert, wird gar nichts hochgeladen (die Oberflaeche
+  // meldet trotzdem Erfolg), und die remove-Liste kann im neuen Konto Felder
+  // loeschen, die nur das alte hatte.
+  function logout() { lsDel(TOKEN_KEY); lsDel(EMAIL_KEY); lastHash = null; lastFields = null; erstSyncOk = false; refreshStatusLine(); }
 
   function fnv(str) {
     var h = 0x811c9dc5;
@@ -178,8 +189,18 @@
       // nie im Store. Die übrigen Schlüssel unten machen das längst genauso.
       var rlz = alsText(remote['bk_books_lz']);
       var rbk = alsText(remote['bk_books']);
-      if (rlz != null) remoteBooks = decompressBooks(rlz);
-      else if (rbk != null) remoteBooks = rbk;
+      if (rlz != null) {
+        remoteBooks = decompressBooks(rlz);
+        // Scheitert das Entpacken — LZString fehlt, weil js/vendor/lz-string.min.js
+        // nicht geladen wurde —, ist das ein LESEFEHLER, nicht „die Cloud ist leer".
+        // Einfach weiterzumachen hieße: den Cloud-Stand verwerfen und ihn gleich
+        // darauf per Voll-Push mit dem lokalen zu überschreiben. Die gesamte
+        // Sammlung wäre weg. Deshalb hier abbrechen — laut.
+        if (remoteBooks == null) {
+          leseFehler = true;
+          throw new Error('Cloud-Daten konnten nicht entpackt werden. Sync gestoppt, damit nichts überschrieben wird — bitte die App neu laden.');
+        }
+      } else if (rbk != null) remoteBooks = rbk;
       if (remoteBooks != null) {
         var lvb = booksGetRaw();
         if (lvb == null || lvb === '[]' || lvb === '') { booksSetRaw(remoteBooks); changed = true; }
@@ -252,15 +273,29 @@
   // Schleuse in app.js: ist das Kontingent erschöpft, hilft nur Warten).
   var syncPauseBis = 0;
   var PAUSE_TEXT = 'Zu viele Sync-Anfragen — bitte eine Minute warten.';
+  // Gesetzt, wenn der Cloud-Stand nicht LESBAR war. Dann darf auch nicht mehr
+  // geschrieben werden: ein Push würde den unlesbaren, aber intakten Stand in der
+  // Cloud durch den lokalen ersetzen. Nur ein Neuladen hebt das auf.
+  var leseFehler = false;
+  var LESE_TEXT = 'Cloud-Daten sind hier nicht lesbar — Sync gestoppt. Bitte die App neu laden.';
   function syncPausiert() { return Date.now() < syncPauseBis; }
   function pruefeAntwort(res) {
     if (res.status === 401) { logout(); throw new Error('Sitzung abgelaufen — bitte neu anmelden.'); }
     if (res.status === 429) { syncPauseBis = Date.now() + 60000; throw new Error(PAUSE_TEXT); }
+    // Alles andere ebenfalls melden statt still false zurückzugeben. Vorher liefen
+    // genau die Fehler durch, die bei großen Sammlungen auftreten — 413 „zu groß"
+    // und 503 „nicht eingerichtet" —, und die Statuszeile schrieb „Synchronisiert ✓".
+    // Der Nutzer hielt seine Sammlung für gesichert, während in der Cloud der letzte
+    // erfolgreiche Stand lag.
+    if (res.status === 413) throw new Error('Sammlung zu groß für den Cloud-Sync. Bitte Duplikate entfernen (⚙️ Mehr).');
+    if (res.status === 503) throw new Error('Cloud-Sync ist gerade nicht erreichbar.');
+    if (!res.ok) throw new Error('Cloud-Sync fehlgeschlagen (HTTP ' + res.status + ').');
     return res;
   }
 
   function pull() {
     var t = getToken(); if (!t) return Promise.resolve(null);
+    if (leseFehler) return Promise.reject(new Error(LESE_TEXT));
     if (syncPausiert()) return Promise.reject(new Error(PAUSE_TEXT));
     return fetch(API + '/sync?app=' + APP, { headers: { Authorization: 'Bearer ' + t } }).then(function (res) {
       pruefeAntwort(res);
@@ -272,6 +307,7 @@
   // setzt den Delta-Snapshot (lastFields), damit danach nur noch Deltas gehen.
   function push(data) {
     var t = getToken(); if (!t) return Promise.resolve(false);
+    if (leseFehler) return Promise.reject(new Error(LESE_TEXT));
     if (syncPausiert()) return Promise.reject(new Error(PAUSE_TEXT));
     var sent = data || collectData();
     return fetch(API + '/sync?app=' + APP, {
@@ -289,6 +325,7 @@
   // damit die Server-Migration + ein vollständiger Ausgangsstand garantiert sind.
   function pushDelta() {
     var t = getToken(); if (!t) return Promise.resolve(false);
+    if (leseFehler) return Promise.reject(new Error(LESE_TEXT));
     if (syncPausiert()) return Promise.reject(new Error(PAUSE_TEXT));
     var cur = collectData();
     if (!lastFields) return push(cur);
@@ -328,6 +365,10 @@
     opts = opts || {};
     return pull().then(function (remote) {
       var changed = mergeApply(remote);
+      // Ab hier ist der Cloud-Stand nachweislich gelesen und eingearbeitet — erst
+      // jetzt darf gepusht werden. mergeApply wirft bei unlesbaren Daten, dann
+      // bleibt die Sperre stehen.
+      erstSyncOk = true;
       lastHash = lightHash();
       // pushDelta: beim ersten Mal (lastFields==null) voll (Migration/Baseline),
       // danach nur geänderte Sammlungen → Gesamtdaten dürfen die 4-MB-Blob-Grenze
@@ -350,6 +391,7 @@
 
   function scheduledPush() {
     if (!isLoggedIn()) return;
+    if (!erstSyncOk) return;          // siehe erstSyncOk — nie vor dem ersten Abgleich
     clearTimeout(pushTimer);
     pushTimer = setTimeout(function () {
       var h = lightHash();
@@ -563,9 +605,21 @@
     if (isLoggedIn()) {
       syncNow({}).catch(function () {});
     }
-    setInterval(function () { scheduledPush(); refreshStatusLine(); }, POLL_MS);
+    setInterval(function () {
+      // Scheiterte der Start-Abgleich, wird er hier WIEDERHOLT statt einfach zu
+      // pushen. Vorher rief das Intervall trotz des Namens POLL_MS nur scheduledPush() —
+      // ein offline gestarteter Tab schob seinen ungeprüften Stand in die Cloud,
+      // sobald das Netz zurückkam.
+      if (isLoggedIn() && !erstSyncOk && !leseFehler) {
+        syncNow({}).catch(function () {});
+        refreshStatusLine();
+        return;
+      }
+      scheduledPush();
+      refreshStatusLine();
+    }, POLL_MS);
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'hidden' && isLoggedIn()) {
+      if (document.visibilityState === 'hidden' && isLoggedIn() && erstSyncOk) {
         var hh = lightHash();
         if (hh !== lastHash) pushDelta().then(function (ok) { if (ok) lastHash = hh; }).catch(function () {});
       }

@@ -18,7 +18,9 @@ export function skripteAusIndex() {
   return [...html.matchAll(/<script[^>]+src="([^"?]+)(?:\?[^"]*)?"/g)].map((m) => m[1]);
 }
 
-export async function ladeApp({ buecher = [], einstellungen = null } = {}) {
+// ohneModule: Dateinamen (z. B. 'app-statistik.js'), die absichtlich NICHT geladen
+// werden — um zu pruefen, wie sich die App verhaelt, wenn ein Teilmodul ausfaellt.
+export async function ladeApp({ buecher = [], einstellungen = null, ohneModule = [] } = {}) {
   const html = fs.readFileSync(path.join(WURZEL, 'index.html'), 'utf8');
 
   const dom = new JSDOM(html, {
@@ -72,6 +74,7 @@ export async function ladeApp({ buecher = [], einstellungen = null } = {}) {
   const fehler = [];
   for (const rel of skripteAusIndex()) {
     if (rel.includes('store.js')) continue;           // durch den Spiegel ersetzt
+    if (ohneModule.some((n) => rel.endsWith(n))) continue;   // absichtlich ausgelassen
     const datei = path.join(WURZEL, rel);
     if (!fs.existsSync(datei)) { fehler.push('fehlt: ' + rel); continue; }
     try {
