@@ -14,6 +14,9 @@
   // { v, titel, punkte: [ [Icon, Überschrift, Erklärung], … ] }
   // v muss exakt dem Präfix von APP_VERSION entsprechen (z. B. "v39").
   var CHANGELOG = [
+    { v: "v3.9", titel: "Die Seite steht beim Öffnen still", punkte: [
+      ["🧘", "Kein Rucken mehr beim Start", "Beim Öffnen stand die Fußzeile kurz mitten auf der noch leeren Seite und wurde dann vom Inhalt nach unten geschoben — die ganze Seite ruckte. Jetzt beginnt sie gleich unterhalb des Bildschirms, und alles steht vom ersten Moment an still."],
+    ]},
     { v: "v3.8", titel: "Der Sync traut sich nicht mehr zu viel zu", punkte: [
       ["🧭", "Erst schauen, dann schreiben", "Konnte die App beim Start nicht mit der Cloud sprechen — Flugmodus, schlechtes Netz, Serverproblem —, schob sie ihren eigenen Stand trotzdem hoch, sobald das Netz zurückkam. Was nur in der Cloud lag, war damit weg. Jetzt wird erst hochgeladen, wenn wenigstens einmal erfolgreich abgeglichen wurde."],
       ["🔍", "Unlesbare Cloud-Daten stoppen den Sync", "Fehlte ein Hilfsprogramm zum Entpacken, sah die App die Cloud-Sammlung als leer an — und überschrieb sie. Jetzt bricht sie stattdessen ab und sagt, dass ein Neuladen hilft."],
