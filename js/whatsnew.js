@@ -14,6 +14,10 @@
   // { v, titel, punkte: [ [Icon, Überschrift, Erklärung], … ] }
   // v muss exakt dem Präfix von APP_VERSION entsprechen (z. B. "v39").
   var CHANGELOG = [
+    { v: "v3.10", titel: "Änderungen als Reiter statt als lange Liste", punkte: [
+      ["🗂️", "Eine Version pro Reiter", "Das Fenster „Was ist neu“ zeigt die Versionen jetzt als Reiter. Du tippst eine Version an und liest nur deren Änderungen, statt durch eine lange Liste zu scrollen. Die neuesten Versionen stehen vorn, ältere liegen unter „Ältere“."],
+      ["⚙️", "Jederzeit in den Einstellungen", "Unter Einstellungen → Über öffnet „Was ist neu“ die komplette Historie aller Versionen, auch nach dem Update-Hinweis."],
+    ]},
     { v: "v3.9", titel: "Die Seite steht beim Öffnen still", punkte: [
       ["🧘", "Kein Rucken mehr beim Start", "Beim Öffnen stand die Fußzeile kurz mitten auf der noch leeren Seite und wurde dann vom Inhalt nach unten geschoben — die ganze Seite ruckte. Jetzt beginnt sie gleich unterhalb des Bildschirms, und alles steht vom ersten Moment an still."],
     ]},
@@ -150,6 +154,19 @@
       + '.wn-vers span{flex-shrink:0;font-size:10px;font-weight:800;letter-spacing:.04em;'
       + 'background:' + A2 + '30;color:' + A1 + ';border:1px solid ' + A2 + '66;'
       + 'border-radius:999px;padding:3px 9px}'
+      + '.wn-tabs{display:flex;gap:6px;align-items:center;overflow-x:auto;margin:0 0 12px;padding:2px 0 6px;'
+      + '-webkit-overflow-scrolling:touch;scrollbar-width:thin}'
+      + '.wn-tab{flex-shrink:0;padding:7px 12px;border-radius:999px;font-size:12px;font-weight:700;'
+      + 'color:' + FG + ';background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);cursor:pointer;'
+      + 'touch-action:manipulation;-webkit-tap-highlight-color:transparent;font-family:inherit}'
+      + '.wn-tab[aria-selected="true"]{background:linear-gradient(135deg,' + A1 + ',' + A2 + ');'
+      + 'border-color:' + A2 + '66;color:#fff}'
+      + '.wn-tab:focus-visible,.wn-aelter:focus-visible{outline:2px solid ' + A1 + ';outline-offset:2px}'
+      + '.wn-aelter{flex-shrink:0;padding:7px 10px;border-radius:999px;font-size:12px;font-weight:700;'
+      + 'color:' + FG + ';background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);'
+      + 'font-family:inherit;max-width:130px}'
+      + '.wn-aelter.wn-aktiv{background:linear-gradient(135deg,' + A1 + ',' + A2 + ');border-color:' + A2 + '66;color:#fff}'
+      + '.wn-aelter option{color:#111}'
       + '.wn-punkt{display:flex;align-items:flex-start;gap:10px;padding:8px 10px;margin:0 0 5px;'
       + 'background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.075);border-radius:10px}'
       + '.wn-icon{font-size:17px;line-height:1.25;flex-shrink:0;width:22px;text-align:center}'
@@ -189,28 +206,85 @@
       + '<button class="wn-zu" type="button" aria-label="Schließen">✕</button>'
       + '<div class="wn-kopf"><div class="wn-sig">本</div><div>'
       + '<div class="wn-titel">Was ist neu</div>'
-      + '<div class="wn-sub">' + (manuell ? 'Die letzten Änderungen' : 'Die App wurde aktualisiert')
+      + '<div class="wn-sub">' + (manuell ? 'Alle Versionen' : 'Die App wurde aktualisiert')
       + ' · Version ' + esc(version() || '') + '</div></div></div>'
-      + liste.map(function (e) {
-          return '<div class="wn-block"><div class="wn-vers"><span>' + esc(e.v) + '</span>'
-            + esc(e.titel) + '</div>'
-            + e.punkte.map(function (p) {
-                return '<div class="wn-punkt"><div class="wn-icon">' + esc(p[0]) + '</div><div>'
-                  + '<div class="wn-name">' + esc(p[1]) + '</div>'
-                  + '<div class="wn-text">' + esc(p[2]) + '</div></div></div>';
-              }).join('')
-            + '</div>';
-        }).join('')
+      + '<div class="wn-tabs" role="tablist" aria-label="Versionen"></div>'
+      + '<div class="wn-panel" role="tabpanel" aria-live="polite"></div>'
       + '<div class="wn-fuss"><button class="wn-btn" type="button">Alles klar</button></div>'
       + '</div>';
 
     document.body.appendChild(ov);
+    reiterAufbauen(ov, liste);
     ov.querySelector('.wn-zu').addEventListener('click', schliessen);
     ov.querySelector('.wn-btn').addEventListener('click', schliessen);
     ov.addEventListener('click', function (e) { if (e.target === ov) schliessen(); });
     escHandler = function (e) { if (e.key === 'Escape') schliessen(); };
     document.addEventListener('keydown', escHandler);
     try { ov.querySelector('.wn-btn').focus(); } catch (e) {}
+  }
+
+  // Reiter: die neuesten sichtbaren Versionen als Knöpfe, der Rest im Auswahlfeld „Ältere“.
+  var SICHTBAR = 4;
+
+  function panelHtml(e) {
+    return '<div class="wn-block"><div class="wn-vers"><span>' + esc(e.v) + '</span>'
+      + esc(e.titel) + '</div>'
+      + e.punkte.map(function (p) {
+          return '<div class="wn-punkt"><div class="wn-icon">' + esc(p[0]) + '</div><div>'
+            + '<div class="wn-name">' + esc(p[1]) + '</div>'
+            + '<div class="wn-text">' + esc(p[2]) + '</div></div></div>';
+        }).join('')
+      + '</div>';
+  }
+
+  function reiterAufbauen(ov, liste) {
+    var leiste = ov.querySelector('.wn-tabs');
+    var panel = ov.querySelector('.wn-panel');
+    var vorn = liste.slice(0, SICHTBAR), hinten = liste.slice(SICHTBAR);
+    var knoepfe = [], auswahl = null;
+
+    function waehle(i) {
+      panel.innerHTML = panelHtml(liste[i]);
+      knoepfe.forEach(function (b, k) {
+        var an = (k === i);
+        b.setAttribute('aria-selected', an ? 'true' : 'false');
+        b.tabIndex = an ? 0 : -1;
+      });
+      if (auswahl) {
+        auswahl.value = (i >= SICHTBAR) ? String(i) : '';
+        auswahl.classList.toggle('wn-aktiv', i >= SICHTBAR);
+      }
+      var karte = ov.querySelector('.wn-karte');
+      if (karte) karte.scrollTop = 0;
+    }
+
+    vorn.forEach(function (e, i) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'wn-tab'; b.setAttribute('role', 'tab');
+      b.textContent = e.v;
+      b.addEventListener('click', function () { waehle(i); });
+      b.addEventListener('keydown', function (ev) {
+        var d = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
+        if (!d) return;
+        var n = i + d;
+        if (n < 0 || n >= vorn.length) return;
+        ev.preventDefault(); waehle(n); knoepfe[n].focus();
+      });
+      leiste.appendChild(b); knoepfe.push(b);
+    });
+
+    if (hinten.length) {
+      auswahl = document.createElement('select');
+      auswahl.className = 'wn-aelter'; auswahl.setAttribute('aria-label', 'Ältere Versionen');
+      auswahl.innerHTML = '<option value="">Ältere</option>' + hinten.map(function (e, k) {
+        return '<option value="' + (SICHTBAR + k) + '">' + esc(e.v) + '</option>';
+      }).join('');
+      auswahl.addEventListener('change', function () {
+        if (auswahl.value !== '') waehle(parseInt(auswahl.value, 10));
+      });
+      leiste.appendChild(auswahl);
+    }
+    waehle(0);
   }
 
   function schliessen() {
@@ -250,12 +324,17 @@
   }
 
   global.WhatsNew = {
-    zeigen: function () { zeigen(CHANGELOG.slice(0, 2), true); },
+    zeigen: function () { zeigen(CHANGELOG, true); },
     pruefen: pruefen,
     changelog: CHANGELOG
   };
 
+  function knopfBinden() {
+    var b = document.getElementById('wn-oeffnen');
+    if (b) b.addEventListener('click', function () { zeigen(CHANGELOG, true); });
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', pruefen);
-  } else { pruefen(); }
+    document.addEventListener('DOMContentLoaded', function () { knopfBinden(); pruefen(); });
+  } else { knopfBinden(); pruefen(); }
 })(window);

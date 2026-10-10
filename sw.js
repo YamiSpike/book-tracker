@@ -6,7 +6,7 @@
    - Eine neue Version kommt AUSSCHLIESSLICH über den Update-Banner: dessen
      Klick lädt mit ?_v=… → Netz erzwungen → Shell erneuert.
    - Cover-Cache (buecher-covers-v1) bleibt eigenständig und überlebt Updates. */
-const CACHE = 'hon-v3-9';
+const CACHE = 'hon-v3-10';
 // Cover-Cache ist EIGENSTÄNDIG versioniert und überlebt App-Updates —
 // sonst wären nach jedem Versions-Bump alle Offline-Cover weg
 const COVER_CACHE = 'buecher-covers-v1';
@@ -61,16 +61,16 @@ async function coverBeschneiden() {
 // sonst würde jeder Deploy still updaten.
 const SHELL = 'buecher-shell';
 // MUSS mit den ?v=-Bustern in index.html übereinstimmen (Versions-Trias!)
-const BUST = '?v=3.9';
+const BUST = '?v=3.10';
 
 // Kosmetische Statik (unkritisch fürs Versions-Pinning) — versionierter Cache
 const PRECACHE = [
   './manifest.json',
-  './icon.svg?v=3.9',
+  './icon.svg?v=3.10',
   './img/fuku.png',
-  './icons/icon-180.png?v=3.9',
-  './icons/icon-192.png?v=3.9',
-  './icons/icon-512.png?v=3.9',
+  './icons/icon-180.png?v=3.10',
+  './icons/icon-192.png?v=3.10',
+  './icons/icon-512.png?v=3.10',
 ];
 
 // App-Code: gehört zur gepinnten Shell-Version → persistenter SHELL-Cache.
