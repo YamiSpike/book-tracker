@@ -355,6 +355,7 @@
     }
     saveBooks(all);
     refreshAll();
+    try { if (window.Glas) window.Glas.blasen(); } catch (e) { /* Zierde */ }
   }
   function patchBook(id, patch) {
     if (sharedData) { toast('👀 Nur-Lese-Ansicht — Änderungen sind hier deaktiviert.'); return; }
@@ -2844,6 +2845,14 @@
     $('setReducedMotion').checked = !!s.reduced;
     var tm = $('setThemeMode'); if (tm) tm.value = mode;
     var gi = $('setGoal'); if (gi) gi.value = parseInt(s.goal, 10) || 0;
+    // Glas-Effekte: „Animationen reduzieren" wurde eben gesetzt → neu entscheiden, dann Schalter und Satz nachziehen
+    try {
+      if (window.Glas) {
+        window.Glas.bewerten();
+        var gs = $('setGlasImmer'); if (gs) gs.checked = window.Glas.immer();
+        var gl = $('glasLage'); if (gl) gl.textContent = window.Glas.lageText();
+      }
+    } catch (e) { /* Zierde */ }
   }
   if (sysDark && sysDark.addEventListener) sysDark.addEventListener('change', function () {
     if (themeMode() === 'auto') applySettings();
@@ -2994,6 +3003,11 @@
     });
     $('setReducedMotion').addEventListener('change', function (e) {
       var s = loadSettings(); s.reduced = e.target.checked; saveSettings(s); applySettings();
+    });
+    $('setGlasImmer').addEventListener('change', function (e) {
+      // nur im Gerät (bk_glas_immer, steht in der Cloud-Sperrliste), nicht in den synchronisierten Einstellungen
+      try { window.Glas.immerSetzen(e.target.checked); } catch (err) { /* Zierde */ }
+      applySettings();
     });
     $('setGoal').addEventListener('change', function (e) {
       var s = loadSettings(); s.goal = Math.max(0, parseInt(e.target.value, 10) || 0); saveSettings(s); applySettings();

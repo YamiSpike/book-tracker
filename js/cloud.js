@@ -20,7 +20,9 @@
   // (er ist ja die Weitergabe), aber zu welchem Konto er gehört, ist eine reine
   // Gerätefrage — siehe wipe() und mergeApply().
   var BLOCK = new Set([
-    TOKEN_KEY, EMAIL_KEY, 'bk_app_version', 'bk_cloud_lastsync', 'bk_search_cache', 'bk_wipe_acct'
+    TOKEN_KEY, EMAIL_KEY, 'bk_app_version', 'bk_cloud_lastsync', 'bk_search_cache', 'bk_wipe_acct',
+    // Gerätewerte: Schalter „Spotlight und Blasen trotzdem zeigen" (seit v3.12) und Testschalter der Fehlermeldung
+    'bk_glas_immer', 'bk_fehler_test'
   ]);
   var PREFIX = ['bk_'];
 

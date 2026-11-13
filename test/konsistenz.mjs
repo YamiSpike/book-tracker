@@ -82,6 +82,14 @@ if (meta) {
     // googleapis.com steht im SW verkuerzt, in der CSP als www.googleapis.com
     pruefe('connect-src deckt ' + h, connect.includes(h), connect.trim().slice(0, 120));
   }
+  // Fehlermeldung (Sentry): ohne den Ingest-Host in connect-src blockt der Browser jede Meldung lautlos.
+  const fm = fs.readFileSync('js/fehlermeldung.js', 'utf8');
+  const dsnHost = (fm.match(/DSN\s*=\s*'https:\/\/[^@']+@([^\/']+)\//) || [])[1];
+  pruefe('fehlermeldung.js hat einen DSN-Host', !!dsnHost, dsnHost);
+  pruefe('connect-src deckt den Sentry-Host ' + dsnHost, !!dsnHost && connect.includes('https://' + dsnHost));
+  pruefe('Sentry-Bündel und Konfig laden VOR den App-Skripten',
+    html.indexOf('js/vendor/sentry-sdk.js') > -1 && html.indexOf('js/fehlermeldung.js') > html.indexOf('js/vendor/sentry-sdk.js')
+    && html.indexOf('js/fehlermeldung.js') < html.indexOf('js/store.js'));
 }
 
 console.log('');

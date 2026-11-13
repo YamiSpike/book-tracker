@@ -14,6 +14,11 @@
   // { v, titel, punkte: [ [Icon, Überschrift, Erklärung], … ] }
   // v muss exakt dem Präfix von APP_VERSION entsprechen (z. B. "v39").
   var CHANGELOG = [
+    { v: "v3.12", titel: "Glas, Licht und stille Fehlermeldung", punkte: [
+      ["🫧", "Liquid-Glas mit Spotlight und Blasen", "Kopfleiste, Tab-Leiste, Fenster und Meldungen sind jetzt Milchglas im Kerzenlicht-Ton. Unter Maus oder Finger folgt ein weicher Lichtfleck, und wer ein Buch einträgt oder seinen Status ändert, sieht ein paar Blasen aufsteigen. Bei „Bewegung reduzieren“ am Gerät oder „Animationen reduzieren“ in der App bleiben die Effekte aus."],
+      ["🎚️", "Schalter in den Einstellungen", "Unter Einstellungen → Darstellung zeigt „Spotlight und Blasen trotzdem zeigen“ die Effekte auch bei reduzierter Bewegung. Darunter steht, was dein Gerät meldet. Der Schalter gilt nur für dieses Gerät."],
+      ["🩺", "Stille Fehlermeldung", "Passiert in der App etwas Unerwartetes, geht eine kurze, anonyme Meldung an den Entwickler: Version und die Stelle im Programm. Nie dabei: Buchtitel, Notizen, Zitate, Konto, Suchbegriffe oder eine Spur deiner Klicks. Ohne Netz wird nichts gesendet, und die App läuft unverändert weiter."]
+    ]},
     { v: "v3.11", titel: "Versionen im Dropdown", punkte: [
       ["🔽", "Eine Auswahl statt Reitern", "„Was ist neu“ zeigt die Versionen jetzt in einer Auswahlliste: Version wählen und nur deren Änderungen lesen. Das ist übersichtlicher als eine Reiterleiste, vor allem bei vielen Versionen."]
     ]},

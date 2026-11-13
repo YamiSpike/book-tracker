@@ -1,0 +1,164 @@
+/* Hon 本 · Bücher Tracker — Liquid-Glas (seit v3.12)
+   Lädt als LETZTES Stylesheet (nach styles.css) und überschreibt nur Oberflächen, keine Maße von Inhalten.
+   Vorlage: Drinky Tracker / Japan Navigator, auf die warme Palette „Bibliothek bei Kerzenlicht" umgefärbt
+   (Bernstein statt Blau). Echtes Glas (backdrop-filter) liegt nur dort, wo wirklich etwas durchscheint:
+   Kopfleiste, untere Leiste, Blätter, Meldungen. Karten bekommen einen Glasrand mit Lichtkante, aber keinen
+   Blur — dahinter liegt nur der ruhige Hintergrund, ein Blur würde nichts zeigen und Rechenzeit kosten.
+   Bewegt wird nur transform und opacity. */
+
+:root {
+  --glas-blur: blur(18px) saturate(1.5);
+  --glas-blur-blatt: blur(24px) saturate(1.4);
+}
+/* Dunkel („Kerzenlicht"): getöntes Kaffeebraun mit heller Oberkante */
+:root[data-theme="dark"] {
+  --glas-leiste-hg: linear-gradient(180deg, rgba(255, 224, 170, .09), rgba(255, 224, 170, .02) 60%), rgba(28, 21, 17, .62);
+  --glas-blatt-hg: linear-gradient(180deg, rgba(255, 224, 170, .09), rgba(255, 224, 170, .02) 40%), rgba(31, 24, 21, .72);
+  --glas-pille: linear-gradient(180deg, rgba(255, 224, 170, .12), rgba(255, 224, 170, .03)), rgba(38, 29, 24, .70);
+  --glas-fest: #1f1815;
+  --glas-rand: rgba(245, 201, 107, .30);
+  --glas-rand-leise: rgba(245, 201, 107, .16);
+  --glas-schatten: inset 0 1px 0 rgba(255, 236, 200, .26), inset 0 -1px 0 rgba(217, 119, 6, .16),
+                   0 10px 28px rgba(0, 0, 0, .46), 0 0 24px rgba(245, 201, 107, .07);
+  --glas-schatten-gross: inset 0 1px 0 rgba(255, 236, 200, .24), 0 -10px 40px rgba(0, 0, 0, .42), 0 0 30px rgba(245, 201, 107, .06);
+  --glas-kante: inset 0 1px 0 rgba(255, 236, 200, .09);
+  --glas-nav-text: #b8a892;
+  --glas-scrim: rgba(10, 7, 5, .52);
+  /* Spotlight und Blasen */
+  --glas-licht-kern: rgba(255, 205, 120, .12);
+  --glas-licht-rand: rgba(255, 190, 90, .04);
+  --glas-blase-rand: rgba(255, 226, 170, .78);
+  --glas-blase-fuell: rgba(245, 201, 107, .18);
+  --glas-blase-glanz: rgba(255, 250, 235, .9);
+}
+/* Hell („Papier"): Milchglas in Creme */
+:root[data-theme="light"] {
+  --glas-leiste-hg: linear-gradient(180deg, rgba(255, 253, 247, .80), rgba(255, 253, 247, .52)), rgba(247, 241, 229, .30);
+  --glas-blatt-hg: linear-gradient(180deg, rgba(255, 253, 247, .86), rgba(255, 253, 247, .68) 50%), rgba(247, 241, 229, .40);
+  --glas-pille: linear-gradient(180deg, rgba(255, 253, 247, .84), rgba(255, 253, 247, .66)), rgba(247, 241, 229, .30);
+  --glas-fest: #fffcf4;
+  --glas-rand: rgba(255, 255, 255, .95);
+  --glas-rand-leise: rgba(110, 76, 30, .14);
+  --glas-schatten: inset 0 1px 0 #fff, inset 0 -1px 0 rgba(180, 83, 9, .14), 0 0 0 1px rgba(110, 76, 30, .10),
+                   0 10px 28px rgba(90, 60, 20, .16), 0 0 22px rgba(217, 119, 6, .10);
+  --glas-schatten-gross: inset 0 1px 0 #fff, 0 -8px 36px rgba(90, 60, 20, .16), 0 0 0 1px rgba(110, 76, 30, .10);
+  --glas-kante: inset 0 1px 0 #fff, 0 0 0 1px rgba(110, 76, 30, .05);
+  --glas-nav-text: #5a4a37;
+  --glas-scrim: rgba(60, 40, 18, .34);
+  --glas-licht-kern: rgba(200, 100, 10, .07);
+  --glas-licht-rand: rgba(200, 100, 10, .025);
+  --glas-blase-rand: rgba(180, 83, 9, .82);
+  --glas-blase-fuell: rgba(217, 119, 6, .22);
+  --glas-blase-glanz: rgba(255, 255, 255, .95);
+}
+
+/* ── Kopfleiste: bleibt dunkles Holz in beiden Themes, wird aber etwas durchlässiger und bekommt eine Lichtkante ── */
+.topbar {
+  background: linear-gradient(160deg, rgba(58, 38, 20, .80), rgba(28, 19, 12, .84));
+  -webkit-backdrop-filter: var(--glas-blur); backdrop-filter: var(--glas-blur);
+  box-shadow: inset 0 1px 0 rgba(255, 236, 200, .12), 0 2px 12px rgba(0, 0, 0, .35);
+}
+
+/* ── Untere Leiste (Handy) bzw. Tab-Leiste oben (ab 900 px) ── */
+.tabs {
+  background: var(--glas-leiste-hg);
+  -webkit-backdrop-filter: var(--glas-blur); backdrop-filter: var(--glas-blur);
+  border-color: var(--glas-rand-leise);
+  box-shadow: var(--glas-kante);
+}
+.tab { color: var(--glas-nav-text); }
+.tab.active { color: var(--accent); }
+/* Hell: das Akzentorange (#b45309) liegt auf der Leiste bei 4,4 : 1 — das tiefere Orange hält 4,5 : 1 (WCAG AA für kleine Schrift) */
+:root[data-theme="light"] .tab.active { color: var(--accent-deep); }
+/* Untertitel der Kopfleiste: .55 Deckkraft auf dunklem Holz ergab nur ca. 3,4 : 1 */
+.brand-sub { color: rgba(247, 241, 229, .80); }
+
+/* ── Blätter (Detail, Scanner, Manuell, Admin): Schleier ohne eigenen Blur, das Blatt trägt das Glas ── */
+.modal, .admin-modal {
+  background: var(--glas-scrim);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.modal-inner, .admin-card {
+  background: var(--glas-blatt-hg);
+  border-color: var(--glas-rand);
+  box-shadow: var(--glas-schatten-gross);
+  -webkit-backdrop-filter: var(--glas-blur-blatt); backdrop-filter: var(--glas-blur-blatt);
+}
+.modal-close { background: var(--glas-pille); border-color: var(--glas-rand); }
+
+/* ── Meldungen ── */
+.toast {
+  background: var(--glas-pille);
+  border-color: var(--glas-rand);
+  color: var(--text);
+  box-shadow: var(--glas-schatten);
+  -webkit-backdrop-filter: var(--glas-blur); backdrop-filter: var(--glas-blur);
+}
+
+/* ── Karten und Kacheln: Glasrand mit Lichtkante, kein Blur. Hover/Auswahl (styles.css) bleiben maßgeblich. ── */
+.card, .stat-card { border-color: var(--glas-rand-leise); box-shadow: var(--glas-kante); }
+.home-hero { box-shadow: var(--glas-kante); }
+
+/* ── Spotlight (js/glas-licht.js): eine feste Ebene, der Fleck wandert per transform, die Ebene wird per clip-path
+      auf die berührte Fläche zugeschnitten und blendet per opacity ein. Über Meldungen und Update-Banner (z 100060). ── */
+#glas-licht { position: fixed; inset: 0; z-index: 100070; pointer-events: none; opacity: 0; transition: opacity 160ms ease-out; }
+#glas-licht.an { opacity: 1; }
+#glas-licht i {
+  position: absolute; left: 0; top: 0; width: 300px; height: 300px; border-radius: 50%;
+  background: radial-gradient(circle closest-side, var(--glas-licht-kern), var(--glas-licht-rand) 58%, transparent);
+  will-change: transform;
+}
+
+/* ── Blasen: steigen beim Eintragen aus der unteren Leiste auf; nur transform und opacity ── */
+#glas-blasen { position: fixed; inset: 0; z-index: 100075; pointer-events: none; overflow: hidden; }
+#glas-blasen i {
+  position: absolute; border-radius: 50%;
+  border: 1.5px solid var(--glas-blase-rand);
+  background: radial-gradient(circle at 30% 28%, var(--glas-blase-glanz) 0 11%, transparent 26%), radial-gradient(circle at 50% 55%, var(--glas-blase-fuell), transparent 72%);
+  box-shadow: inset -2px -3px 5px rgba(255, 255, 255, .22), 0 0 10px var(--glas-blase-fuell);
+  opacity: 0; will-change: transform, opacity;
+  animation: glas-blase var(--glas-dauer, 1200ms) cubic-bezier(.2, .7, .3, 1) both;
+}
+@keyframes glas-blase {
+  0% { transform: translate3d(0, 0, 0) scale(.35); opacity: 0; }
+  14% { opacity: .95; }
+  100% { transform: translate3d(var(--dx, 0), calc(var(--hoch, 140px) * -1), 0) scale(1.08); opacity: 0; }
+}
+
+/* ── Rückfälle: kein Glas möglich oder unerwünscht → deckend, gleiche Maße ── */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root[data-theme] {
+    --glas-leiste-hg: var(--glas-fest); --glas-blatt-hg: var(--glas-fest); --glas-pille: var(--glas-fest);
+  }
+  .topbar { background: linear-gradient(160deg, rgba(58, 38, 20, .96), rgba(28, 19, 12, .97)); }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-theme] {
+    --glas-blur: none; --glas-blur-blatt: none;
+    --glas-leiste-hg: var(--glas-fest); --glas-blatt-hg: var(--glas-fest); --glas-pille: var(--glas-fest);
+  }
+  .topbar { background: linear-gradient(160deg, rgba(58, 38, 20, .96), rgba(28, 19, 12, .97)); }
+}
+
+/* Spotlight und Blasen aus — außer der Nutzer hat in den Einstellungen „trotzdem zeigen" gewählt (html.glas-immer,
+   gesetzt von js/glas-licht.js). Erzwungene Farben schalten sie immer ab. Auch der App-eigene Schalter
+   „Animationen reduzieren" (data-reduced="1") zählt als Ruhewunsch. */
+@media (prefers-reduced-motion: reduce), (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  html:not(.glas-immer) #glas-licht, html:not(.glas-immer) #glas-blasen { display: none; }
+}
+html:not(.glas-immer)[data-reduced="1"] #glas-licht, html:not(.glas-immer)[data-reduced="1"] #glas-blasen { display: none; }
+@media (forced-colors: active) {
+  #glas-licht, #glas-blasen { display: none; }
+}
+/* styles.css kürzt bei „Animationen reduzieren" (data-reduced) und bei prefers-reduced-motion jede Animations- und
+   Übergangsdauer auf .01 ms (!important). Für die Effekte, die der Nutzer ausdrücklich eingeschaltet hat, gilt wieder
+   die echte Dauer (die ID erhöht die Spezifität, die Regel gewinnt trotz gleichem !important). */
+html.glas-immer[data-reduced="1"] #glas-blasen i { animation-duration: var(--glas-dauer, 1200ms) !important; }
+html.glas-immer[data-reduced="1"] #glas-licht { transition-duration: 160ms !important; }
+@media (prefers-reduced-motion: reduce) {
+  html.glas-immer #glas-blasen i { animation-duration: var(--glas-dauer, 1200ms) !important; }
+  html.glas-immer #glas-licht { transition-duration: 160ms !important; }
+}
+@media (forced-colors: active) {
+  .tabs, .modal-inner, .admin-card, .toast, .card, .stat-card { border: 1px solid CanvasText; }
+}

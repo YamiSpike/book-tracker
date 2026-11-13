@@ -6,7 +6,7 @@ Vor jedem Release `node test/konsistenz.mjs` (prüft Versions-Trias, Buster, Inl
 ## Versionen
 
 Bei jedem Release gemeinsam ändern: `APP_VERSION` in `js/update.js`, `CACHE` und `BUST` in `sw.js`
-(`hon-v3-11`, Punkt wird Bindestrich), `version.json`, alle `?v=` in `index.html`, `manifest.json` und
+(`hon-v3-12`, Punkt wird Bindestrich), `version.json`, alle `?v=` in `index.html`, `manifest.json` und
 `sw.js`, dazu die sichtbaren Labels („Version v3.10“, „Bücher Tracker v3.10“) in `index.html`. Außerdem
 oben in `js/whatsnew.js` einen Eintrag in `CHANGELOG` ergänzen — mit exakt dem Wert von `APP_VERSION`.
 

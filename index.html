@@ -32,13 +32,13 @@
   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
   font-src 'self' https://fonts.gstatic.com;
   img-src 'self' data: blob: https:;
-  connect-src 'self' https://www.googleapis.com https://openlibrary.org https://services.dnb.de https://graphql.anilist.co https://api.jikan.moe
+  connect-src 'self' https://www.googleapis.com https://openlibrary.org https://services.dnb.de https://graphql.anilist.co https://api.jikan.moe https://o4512403125108736.ingest.de.sentry.io
 " />
 
 <!-- PWA -->
 <link rel="manifest" href="manifest.json" />
-<link rel="icon" type="image/svg+xml" href="icon.svg?v=3.11" />
-<link rel="apple-touch-icon" href="icons/icon-180.png?v=3.11" />
+<link rel="icon" type="image/svg+xml" href="icon.svg?v=3.12" />
+<link rel="apple-touch-icon" href="icons/icon-180.png?v=3.12" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Hon 本 · Bücher Tracker" />
@@ -47,7 +47,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Literata:wght@600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/styles.css?v=3.11" />
+<link rel="stylesheet" href="css/styles.css?v=3.12" />
+<link rel="stylesheet" href="css/glas.css?v=3.12" />
 </head>
 <body>
 
@@ -290,6 +291,14 @@
       </div>
       <label class="switch"><input type="checkbox" id="setReducedMotion" /><span></span></label>
     </div>
+    <div class="setting-row">
+      <div>
+        <strong>Spotlight und Blasen trotzdem zeigen</strong>
+        <p class="muted">Lichtfleck unter Maus und Finger, Blasen beim Eintragen. Gilt nur für dieses Gerät.</p>
+        <p class="muted" id="glasLage"></p>
+      </div>
+      <label class="switch"><input type="checkbox" id="setGlasImmer" aria-label="Spotlight und Blasen trotzdem zeigen" /><span></span></label>
+    </div>
 
     <h3>💾 Daten</h3>
     <div class="setting-row">
@@ -388,13 +397,13 @@
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Statistik</p>
         <p class="muted" style="margin:0;">Gelesene Bücher &amp; Seiten · Ø-Bewertung · Top-Genres &amp; Top-Autor·innen als Balken · Bücher pro Jahr</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Daten &amp; Sicherheit</p>
-        <p class="muted" style="margin:0;">Cloud-Sync (E-Mail-Konto, geteilt mit Nihongo- &amp; Japan-App) · Multi-Device-Merge ohne Datenverlust · Passwort-Wiederherstellung per Code oder E-Mail · Offline-fähig (PWA) · Updates NUR per Banner-Klick: die App bleibt auf deiner Version, bis DU „Jetzt aktualisieren" tippst (startet dadurch auch schneller &amp; offline-fester) · JSON-Export/-Import · Goodreads-Import &amp; -Export (CSV) · 🔗 Sammlung als schreibgeschützter Link teilbar (30 Tage, ohne Notizen) · 📴 Offline-Cover-Cache (gedeckelt, damit der Browserspeicher nicht überläuft)</p>
+        <p class="muted" style="margin:0;">Cloud-Sync (E-Mail-Konto, geteilt mit Nihongo- &amp; Japan-App) · Multi-Device-Merge ohne Datenverlust · Passwort-Wiederherstellung per Code oder E-Mail · Offline-fähig (PWA) · Updates NUR per Banner-Klick: die App bleibt auf deiner Version, bis DU „Jetzt aktualisieren" tippst (startet dadurch auch schneller &amp; offline-fester) · JSON-Export/-Import · Goodreads-Import &amp; -Export (CSV) · 🔗 Sammlung als schreibgeschützter Link teilbar (30 Tage, ohne Notizen) · 📴 Offline-Cover-Cache (gedeckelt, damit der Browserspeicher nicht überläuft) · 🩺 <b>Fehlermeldung</b>: tritt in der App ein Fehler auf, geht eine anonyme Meldung (Version, Fundstelle im Code) an den Entwickler — ohne Titel, Notizen, Konto oder Suchbegriffe, ohne Klick- und Netzspur</p>
         <p class="muted" style="font-weight:700;margin:8px 0 2px;">Design &amp; Bedienung</p>
-        <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Kerzenlicht-Glühen im Hero · Gestaffelte Karten-Animationen · Cover-Zoom &amp; Glanz-Effekt · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata) · 🌗 Auto-Theme nach Systemeinstellung</p>
+        <p class="muted" style="margin:0;">Bibliotheks-Design (Dark Academia) · Dunkles &amp; helles Papier-Theme · Kerzenlicht-Glühen im Hero · Gestaffelte Karten-Animationen · Cover-Zoom &amp; Glanz-Effekt · Untere Tab-Leiste (Mobile) · Animationen reduzierbar · Serifen-Typografie (Literata) · 🌗 Auto-Theme nach Systemeinstellung · 🫧 Liquid-Glas (Kopf-, Tab-Leiste, Blätter, Meldungen) mit Spotlight unter Maus/Finger und Blasen beim Eintragen · Schalter „Spotlight und Blasen trotzdem zeigen“ (nur für dieses Gerät)</p>
       </div>
     </details>
     <button id="wn-oeffnen" class="btn-ghost" type="button" style="margin-top:8px;">🆕 Was ist neu</button>
-    <p class="muted" style="font-size:12px;margin-top:8px;">Version v3.11</p>
+    <p class="muted" style="font-size:12px;margin-top:8px;">Version v3.12</p>
   </div>
 </section>
 
@@ -409,20 +418,24 @@
 
 <footer class="appfoot">
   <p>Buchdaten: Google Books · Open Library · Deutsche Nationalbibliothek — Cover © jeweilige Verlage</p>
-  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v3.11</p>
+  <p style="font-size:9px;margin-top:4px;letter-spacing:.3px;">Hon 本 · Bücher Tracker v3.12</p>
 </footer>
 
-<script src="js/vendor/lz-string.min.js?v=3.11"></script>
-<script src="js/store.js?v=3.11"></script>
-<script src="js/update.js?v=3.11"></script>
-<script src="js/cloud.js?v=3.11"></script>
-<script src="js/app.js?v=3.11"></script>
-<script src="js/app-quellen.js?v=3.11"></script>
-<script src="js/app-statistik.js?v=3.11"></script>
-<script src="js/app-erfolge.js?v=3.11"></script>
-<script src="js/app-jahr.js?v=3.11"></script>
-<script src="js/mascot.js?v=3.11"></script>
+<!-- Fehlermeldung (Sentry) zuerst: sonst entgehen ihr Fehler beim Start -->
+<script src="js/vendor/sentry-sdk.js?v=3.12"></script>
+<script src="js/fehlermeldung.js?v=3.12"></script>
+<script src="js/vendor/lz-string.min.js?v=3.12"></script>
+<script src="js/store.js?v=3.12"></script>
+<script src="js/update.js?v=3.12"></script>
+<script src="js/cloud.js?v=3.12"></script>
+<script src="js/glas-licht.js?v=3.12"></script>
+<script src="js/app.js?v=3.12"></script>
+<script src="js/app-quellen.js?v=3.12"></script>
+<script src="js/app-statistik.js?v=3.12"></script>
+<script src="js/app-erfolge.js?v=3.12"></script>
+<script src="js/app-jahr.js?v=3.12"></script>
+<script src="js/mascot.js?v=3.12"></script>
 <!-- „Was ist neu" -->
-<script defer src="js/whatsnew.js?v=3.11"></script>
+<script defer src="js/whatsnew.js?v=3.12"></script>
 </body>
 </html>
