@@ -30,6 +30,30 @@ const WURZEL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = JSON.parse(fs.readFileSync(path.join(WURZEL, 'version.json'), 'utf8')).v;   // z. B. v3.12
 const TYPEN = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/json' };
 
+const NUR = process.env.GLAS_NUR || '';   // 'fehler' = nur Fehlermeldung (Chromium), 'abbruch' = nur Blasen-Abbruch (Chromium)
+const FREMD_SKRIPT = 'https://cdnjs.cloudflare.com/ajax/libs/fremd-probe/1.0.0/fremd.js';   // anderer Ursprung, vom Rauschfilter als Fremdskript erkannt
+
+// Gegenproben: absichtlich kaputte Kopien. Jede ersetzt Muster der Quelle; findet sie keins, ist die Gegenprobe wertlos → Exit 2.
+// Ein grünes „GLAS-EFFEKTE OK“ sagt nur etwas, wenn die Prüfung auch rot werden kann (test/glas-mutanten.mjs lässt sie alle laufen).
+const MUT = process.env.GLAS_MUTANT || '';
+const MUTANTEN = {
+  ip: { datei: '/js/fehlermeldung.js', ersetze: [[/event\.user\s*=\s*\{\s*ip_address:\s*null\s*\};?/, '/* MUTANT */']] },
+  vendor: { datei: '/js/fehlermeldung.js', ersetze: [[/^.*sentry-sdk\\\.js.*$/m, '/* MUTANT */']] },
+  suchteil: { datei: '/js/fehlermeldung.js', ersetze: [[/b\.data\.from = ohneSuchteil\(b\.data\.from\); b\.data\.to = ohneSuchteil\(b\.data\.to\);/, '/* MUTANT */']] },
+  blase: { datei: '/js/glas-licht.js', ersetze: [[/^.*addEventListener\('animationcancel'.*$/m, '/* MUTANT */'], [/^.*setTimeout\(weg, 4000\);.*$/m, '/* MUTANT */']] },
+  // SW-Update: Ablehnung von r.update() wieder unbehandelt
+  update: { datei: '/js/update.js', ersetze: [[/if \(up && up\.catch\) up\.catch\(function \(\) \{\}\);/, '/* MUTANT */']] },
+};
+if (MUT && !MUTANTEN[MUT]) { console.error(`GLAS_MUTANT=${MUT} ist unbekannt (${Object.keys(MUTANTEN).join(', ')})`); process.exit(2); }
+function mutiere(text) {
+  let t = text;
+  for (const [re, neu] of MUTANTEN[MUT].ersetze) {
+    if (!re.test(t)) { console.error(`MUTANT ${MUT}: Muster ${re} nicht gefunden in ${MUTANTEN[MUT].datei} — Quelle hat sich geändert, Gegenprobe anpassen`); process.exit(2); }
+    t = t.replace(re, neu);
+  }
+  return t;
+}
+
 function server() {
   return new Promise(fertig => {
     const s = http.createServer((q, a) => {
@@ -39,7 +63,19 @@ function server() {
       if (!f.startsWith(WURZEL)) { a.writeHead(403); return a.end(); }
       fs.stat(f, (e, st) => {
         if (e || !st.isFile()) { a.writeHead(404); return a.end('404'); }
-        a.writeHead(200, { 'content-type': TYPEN[path.extname(f).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-cache' });
+        const kopf = { 'content-type': TYPEN[path.extname(f).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-cache' };
+        // Gegenprobe: diese eine Datei wird absichtlich kaputt ausgeliefert
+        if (MUT && MUTANTEN[MUT].datei === p) { a.writeHead(200, kopf); return a.end(mutiere(fs.readFileSync(f, 'utf8'))); }
+        // Testaufbau: die App sperrt per CSP (<meta>, script-src 'self') jedes Fremdskript, ein Skript von „cdnjs“ liefe nie und die
+        // Fremdfehler-Probe bliebe wirkungslos. Nur die ausgelieferte Kopie erlaubt dem Fake-Host das Skript; die Quelle bleibt unverändert.
+        if (p === '/index.html') {
+          // Mit Semikolon verankert: derselbe Wortlaut steht auch im HTML-Kommentar darüber, ein ungenaues Muster träfe den Kommentar
+          const roh = fs.readFileSync(f, 'utf8');
+          const html = roh.replace(/^(\s*)script-src 'self';/m, "$1script-src 'self' https://cdnjs.cloudflare.com;");
+          if (html === roh) { console.error("Testaufbau: script-src 'self'; in index.html nicht gefunden — Fremdskript-Probe anpassen"); process.exit(2); }
+          a.writeHead(200, kopf); return a.end(html);
+        }
+        a.writeHead(200, kopf);
         fs.createReadStream(f).pipe(a);
       });
     });
@@ -52,7 +88,7 @@ const fehl = (wo, t) => FEHLER.push('[' + wo + '] ' + t);
 const gut = (wo, t) => OK.push('[' + wo + '] ' + t);
 
 /** App öffnen: frisches Profil, Service Worker aus, Theme und App-Einstellungen vorab setzen, Fehler mitschreiben. */
-async function starten(browser, url, optionen, { thema = 'dark', appRuhig = false, extra = null, sentryFang = null } = {}) {
+async function starten(browser, url, optionen, { thema = 'dark', appRuhig = false, extra = null, sentryFang = null, vorStart = null } = {}) {
   const ctx = await browser.newContext({ locale: 'de-DE', serviceWorkers: 'block', ...optionen });
   await ctx.addInitScript(([t, ruhig, v]) => {
     try {
@@ -61,6 +97,9 @@ async function starten(browser, url, optionen, { thema = 'dark', appRuhig = fals
       if (!localStorage.getItem('bk_seen_version')) localStorage.setItem('bk_seen_version', v);
     } catch (e) {}
   }, [thema, appRuhig, VERSION]);
+  // Schriften kommen von Google Fonts. Hängt dieser Host (23.11.: Timeout auf goto), wartet „load“ ewig und die Prüfung scheitert am
+  // Netz statt an der App. Die Prüfung hängt darum nicht am Netz: Fonts werden abgebrochen, die App fällt auf ihre Ersatzschrift zurück.
+  await ctx.route(/fonts\.(googleapis|gstatic)\.com/, r => r.abort());
   if (extra) await ctx.addInitScript(extra);
   if (sentryFang) await ctx.route(/ingest\.de\.sentry\.io/, async route => {
     const q = route.request();
@@ -68,6 +107,7 @@ async function starten(browser, url, optionen, { thema = 'dark', appRuhig = fals
     sentryFang.push({ url: q.url(), body: q.postData() || '' });
     return route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*' }, body: '{}' });
   });
+  if (vorStart) await vorStart(ctx);
   const p = await ctx.newPage();
   p.fehler = [];
   p.on('pageerror', e => p.fehler.push('pageerror: ' + (e.message || e)));
@@ -241,39 +281,94 @@ async function farben(browser, url, wo) {
 
 async function fehlermeldung(browser, url, wo) {
   const fang = [];
-  const { ctx, p } = await starten(browser, url, { viewport: { width: 1280, height: 800 } }, { extra: () => { try { localStorage.setItem('bk_fehler_test', '1'); } catch (e) {} }, sentryFang: fang });
+  // Probe „SW-Update“: update.js ruft r.update() je Registrierung auf. Eine Registrierung, deren update() ablehnt („Not found“ bei gerade
+  // getauschtem sw.js), darf keine unbehandelte Ablehnung (und damit kein Sentry-Ereignis) erzeugen. Der Service Worker ist im Prüfaufbau
+  // gesperrt, darum ein vollständiger Stub samt Zähler; fehlt der Aufruf später, schlägt der Testaufbau selbst an.
+  const extra = () => {
+    try { localStorage.setItem('bk_fehler_test', '1'); } catch (e) {}
+    window.__swUpdates = 0;
+    const reg = { update: () => { window.__swUpdates++; return Promise.reject(new TypeError('Not found probe')); }, unregister: () => Promise.resolve(true) };
+    const stub = { getRegistrations: () => Promise.resolve([reg]), getRegistration: () => Promise.resolve(reg), register: () => Promise.resolve(reg), ready: new Promise(() => {}), controller: null, addEventListener() {}, removeEventListener() {} };
+    try { Object.defineProperty(navigator, 'serviceWorker', { value: stub, configurable: true }); } catch (e) { /* nicht überschreibbar */ }
+  };
+  const { ctx, p } = await starten(browser, url, { viewport: { width: 1280, height: 800 } }, { extra, sentryFang: fang, vorStart: async c => {
+    // Fremdskript von einem ANDEREN Ursprung (cdnjs-Adresse, vom Rauschfilter als Fremdskript erkannt), das in einem Klick-Rückruf wirft
+    await c.route(FREMD_SKRIPT, r => r.fulfill({ status: 200, contentType: 'text/javascript', body: "window.__fremdGeladen = true; document.addEventListener('click', function () { throw new Error('Fremdfehler glas-effekte-check'); });" }));
+    // Ein Skript von DIESER Seite, das wirft: ein Wurf aus page.evaluate hätte keine eigene Fundstelle und bewiese nichts
+    await c.route('**/__probe-eigen.js', r => r.fulfill({ status: 200, contentType: 'text/javascript', body: "setTimeout(function () { throw new Error('Probefehler glas-effekte-check'); }, 0);" }));
+  } });
   try {
     const sdk = await p.evaluate(() => ({ da: typeof FehlerSDK !== 'undefined', test: typeof bkFehlerTest }));
     if (!sdk.da) return fehl(wo, 'FehlerSDK nicht geladen (js/vendor/sentry-sdk.js)');
     if (sdk.test !== 'function') return fehl(wo, 'bkFehlerTest fehlt (fehlermeldung.js hat nicht gestartet)');
-    // Klick-, Netz- und Konsolenspur würde Breadcrumbs füllen: erst etwas tun, dann den Fehler auslösen
+    // Klick- und Netzspur würde Breadcrumbs füllen: erst etwas tun, dann den Fehler auslösen
     await p.evaluate(() => { document.body.click(); console.log('Spur-Probe'); return fetch('/version.json?geheim=1').then(r => r.text()); });
-    await p.evaluate(() => { setTimeout(() => { throw new Error('Probefehler glas-effekte-check'); }, 0); });
+    // Seitenwechsel-Spur mit Suchteil: das gebündelte SDK kürzt nur request.url, from/to der Breadcrumbs kürzt fehlermeldung.js
+    await p.evaluate(() => { history.pushState({}, '', '/?geheim=2'); history.pushState({}, '', '/?geheim=3#x'); });
+    const laden = src => p.evaluate(s => new Promise(ok => { const e = document.createElement('script'); e.src = s; e.onload = ok; e.onerror = ok; document.head.appendChild(e); }), src);
+    await laden('/__probe-eigen.js');
+    await laden(FREMD_SKRIPT);
+    await warte(300);
+    // Testaufbau: eine Probe, die nie lief, darf kein „sauber“ vortäuschen
+    if (!(await p.evaluate(() => window.__fremdGeladen === true))) fehl(wo, 'Testaufbau: das Fremdskript wurde nicht ausgeführt — die Fremdfehler-Probe bliebe wirkungslos');
+    await p.evaluate(() => { document.body.click(); });   // löst den Fremdfehler im Klick-Rückruf aus
     await p.evaluate(() => { Promise.reject(new TypeError('Failed to fetch')); });   // Rauschen: darf NICHT gesendet werden
     await p.evaluate(() => bkFehlerTest());
-    await warte(2500);
+    await warte(3000);   // update.js stößt die SW-Aktualisierung nach 1,5 s an
+    if (!(await p.evaluate(() => window.__swUpdates >= 1))) fehl(wo, 'Testaufbau: r.update() wurde nie aufgerufen — die SW-Update-Probe bliebe wirkungslos');
     const roh = fang.map(f => f.body).join('\n');
     if (!roh) return fehl(wo, 'es wurde nichts an Sentry gesendet (CSP connect-src? Transport?)');
     const ereignisse = [];
     for (const f of fang) for (const z of f.body.split('\n')) { try { const j = JSON.parse(z); if (j && (j.exception || j.message || j.logentry)) ereignisse.push(j); } catch (e) {} }
     if (!ereignisse.length) return fehl(wo, 'Sentry-Anfrage ohne lesbares Ereignis');
-    if (!ereignisse.some(e => JSON.stringify(e).includes('Probefehler glas-effekte-check'))) fehl(wo, 'der echte Fehler (throw) kam nicht an');
+    if (!ereignisse.some(e => JSON.stringify(e).includes('Probefehler glas-effekte-check'))) fehl(wo, 'der echte Fehler (throw aus eigenem Skript) kam nicht an');
     if (!ereignisse.some(e => JSON.stringify(e).includes('Testfehler'))) fehl(wo, 'bkFehlerTest-Meldung kam nicht an');
     if (/Failed to fetch/.test(roh)) fehl(wo, '„Failed to fetch“ wurde gesendet — Rauschfilter wirkt nicht');
+    if (process.env.GLAS_DEBUG) for (const e of ereignisse) console.log('DEBUG Ereignis:', JSON.stringify({ msg: (e.exception && e.exception.values || []).map(v => v.type + ': ' + v.value), frames: (e.exception && e.exception.values || []).map(v => ((v.stacktrace && v.stacktrace.frames) || []).map(f => (f.filename || '') + ':' + (f.function || ''))) }));
+    if (/Fremdfehler glas-effekte-check/.test(roh)) fehl(wo, 'ein Fehler aus Fremdskript + SDK-Wrapper-Frame wurde gesendet — der Frame-Skip für /sentry-sdk.js in istMeldenswert wirkt nicht');
+    if (/Not found probe/.test(roh) || p.fehler.some(x => /Not found probe/.test(x))) fehl(wo, 'die Ablehnung von r.update() (SW-Update, „Not found“) bleibt unbehandelt — .catch in js/update.js fehlt');
     for (const f of fang) if (/[?#]/.test(f.url.replace(/\?sentry_[^#]*$/, ''))) fehl(wo, 'Sentry-Adresse mit unerwartetem Suchteil: ' + f.url);
+    // Die Suchteil-Prüfung ist nur etwas wert, wenn die Spur überhaupt Seitenwechsel enthält
+    const nav = ereignisse.flatMap(e => (e.breadcrumbs || []).filter(b => b.category === 'navigation'));
+    if (!nav.length) fehl(wo, 'Testaufbau: keine Seitenwechsel-Spur im Ereignis — die Suchteil-Prüfung bliebe wirkungslos');
+    for (const b of nav) if (/\?/.test((b.data || {}).from + ' ' + (b.data || {}).to)) fehl(wo, 'Seitenwechsel-Spur mit Suchteil: ' + JSON.stringify(b.data));
     for (const e of ereignisse) {
       if (e.release !== VERSION) fehl(wo, 'release ist «' + e.release + '», erwartet ' + VERSION + ' (Version aus der ?v= der Skript-Adresse)');
       if (e.environment !== 'produktion') fehl(wo, 'environment ist «' + e.environment + '»');
-      if (e.user) fehl(wo, 'Ereignis trägt einen Nutzer: ' + JSON.stringify(e.user));
+      // Erlaubt ist genau {ip_address: null}: das verbietet Sentry, die IP aus der Verbindung abzuleiten.
+      if (!e.user || e.user.ip_address !== null || Object.keys(e.user).length !== 1) fehl(wo, 'user soll genau {ip_address:null} sein, ist: ' + JSON.stringify(e.user));
       if (e.request && /[?#]/.test(e.request.url || '')) fehl(wo, 'request.url mit Suchteil/Anker: ' + e.request.url);
       if (e.request && (e.request.cookies || (e.request.headers && (e.request.headers.Referer || e.request.headers.referer)))) fehl(wo, 'request trägt Cookies/Referer');
-      const spur = (e.breadcrumbs || []).map(b => b.category + ':' + (b.data && (b.data.url || b.data.from || '')));
-      if ((e.breadcrumbs || []).some(b => /^(ui\.|xhr|fetch|console|navigation)/.test(b.category || ''))) fehl(wo, 'Klick-/Netz-/Konsolenspur im Ereignis: ' + spur.join(', '));
-      if (/geheim=1|Spur-Probe/.test(JSON.stringify(e))) fehl(wo, 'Adresse mit Suchteil oder Konsolentext im Ereignis');
+      const spur = (e.breadcrumbs || []).filter(b => /^(ui\.|xhr|fetch|console)/.test(b.category || ''));
+      if (spur.length) fehl(wo, 'Klick-/Netz-/Konsolenspur im Ereignis: ' + spur.map(b => b.category).join(', '));
+      if (/geheim=\d|Spur-Probe/.test(JSON.stringify(e))) fehl(wo, 'Adresse mit Suchteil oder Konsolentext im Ereignis');
     }
-    // Prüfaufbau: die zwei absichtlich ausgelösten Fehler (throw, Promise.reject) meldet Playwright selbst als pageerror
-    if (p.fehler.some(x => !/Probefehler|Failed to fetch/.test(x))) fehl(wo, p.fehler.join(' | '));
-    gut(wo, 'Fehlermeldung: ' + ereignisse.length + ' Ereignis(se) abgefangen, release ' + VERSION + ', ohne Nutzer/Suchteil/Klick-, Netz- und Konsolenspur, Rauschen gefiltert');
+    // Prüfaufbau: die absichtlich ausgelösten Fehler (Probefehler, Fremdfehler, Promise.reject, SW-Stub) meldet Playwright selbst als pageerror
+    const unerwartet = p.fehler.filter(x => !/Probefehler|Fremdfehler|Failed to fetch|Not found probe/.test(x));
+    if (unerwartet.length) fehl(wo, unerwartet.join(' | '));
+    gut(wo, 'Fehlermeldung: ' + ereignisse.length + ' Ereignis(se) abgefangen, release ' + VERSION + ', user {ip_address:null}, ohne Suchteil (auch in der Seitenwechsel-Spur)/Klick-/Netz-/Konsolenspur, Rauschen und Fremdfehler gefiltert, SW-Update-Ablehnung abgefangen, eigener Fehler kommt an');
+  } finally { await ctx.close(); }
+}
+
+// Blasen räumen sich auch auf, wenn die Animation abgebrochen wird (Container ausgeblendet = display:none) — dann feuert animationend
+// nie. Chromium meldet animationcancel (strikt: nach 0,7 s leer); WebKit verlässt sich u. U. auf den Notanker (nach 4 s weg).
+// Beides zusammen: nach knapp 5 s ist in jeder Engine nichts mehr da.
+async function blasenAbbruch(browser, url, wo, strikt) {
+  const name = wo + ' Blasen-Abbruch';
+  const { ctx, p } = await starten(browser, url, { viewport: { width: 1280, height: 800 } }, {});
+  try {
+    await p.evaluate(() => Glas.blasen());
+    await warte(350);
+    const n0 = await p.evaluate(() => document.querySelectorAll('#glas-blasen i').length);
+    if (n0 < 4) return fehl(name, 'Testaufbau: nur ' + n0 + ' Blasen vor dem Abbruch');
+    await p.evaluate(() => { document.getElementById('glas-blasen').style.display = 'none'; });   // bricht alle Animationen ab
+    await warte(700);
+    const n1 = await p.evaluate(() => document.querySelectorAll('#glas-blasen i').length);
+    if (strikt && n1) fehl(name, n1 + ' von ' + n0 + ' Blasen bleiben nach abgebrochener Animation stehen (animationcancel räumt nicht auf)');
+    await warte(4000);
+    const n2 = await p.evaluate(() => document.querySelectorAll('#glas-blasen i').length);
+    if (n2) fehl(name, n2 + ' von ' + n0 + ' Blasen sind auch nach 5 s noch da (weder animationcancel noch Notanker räumen auf)');
+    if (!FEHLER.some(x => x.startsWith('[' + name + ']'))) gut(name, n0 + ' Blasen → nach Abbruch ' + n1 + ' (nach 0,7 s), ' + n2 + ' (nach 5 s)');
   } finally { await ctx.close(); }
 }
 
@@ -283,6 +378,9 @@ try {
   if (motoren.includes('chromium')) {
     const b = await chromium.launch();
     try {
+     if (NUR === 'fehler') await fehlermeldung(b, url, 'chromium Fehlermeldung');
+     else if (NUR === 'abbruch') await blasenAbbruch(b, url, 'chromium', true);
+     else {
       for (const [w, h] of [[375, 667], [768, 1024], [1280, 800]])
         for (const thema of ['dark', 'light']) {
           const mobil = w < 768;
@@ -296,9 +394,11 @@ try {
       await schalter(b, url, 'chromium 1280px App „Animationen reduzieren“', { viewport: { width: 1280, height: 800 } }, { appRuhig: true });
       await farben(b, url, 'chromium Erzwungene Farben');
       await fehlermeldung(b, url, 'chromium Fehlermeldung');
+      await blasenAbbruch(b, url, 'chromium', true);
+     }
     } finally { await b.close(); }
   }
-  if (motoren.includes('webkit')) {
+  if (motoren.includes('webkit') && !NUR) {
     const b = await webkit.launch();
     try {
       await spotlight(b, url, 'webkit Safari-Desktop 1280px', { viewport: { width: 1280, height: 800 } }, { thema: 'dark', strenge: false });
@@ -307,6 +407,7 @@ try {
       await blasen(b, url, 'webkit 1280px', { viewport: { width: 1280, height: 800 } }, 'dark');
       await schalter(b, url, 'webkit 1280px Bewegung reduzieren', { viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
       await fehlermeldung(b, url, 'webkit Fehlermeldung');
+      await blasenAbbruch(b, url, 'webkit', false);
     } finally { await b.close(); }
   }
 } catch (e) { FEHLER.push('Abbruch: ' + (e.stack || e)); }

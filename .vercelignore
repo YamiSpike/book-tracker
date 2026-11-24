@@ -1,0 +1,21 @@
+# Was Vercel NICHT ausliefert. Ohne diese Datei war jede getrackte Datei im Repo öffentlich
+# abrufbar, z. B. test/*.mjs (Prüfskripte), HandOff.md oder CLAUDE.md.
+# Schreibweise wie .gitignore; ein führender Schrägstrich bindet an den Stamm.
+#
+# Nie hier eintragen: index.html, sw.js, manifest.json, version.json, vercel.json, icon.svg,
+# js/, css/, icons/, img/, api/ und package.json (Abhängigkeiten der Funktionen unter api/).
+
+# Prüfskripte, die nur lokal laufen
+/test
+
+# Projekt-, Editor- und Prüf-Einstellungen
+/.claude
+/.unlazy
+/.code-review-graph
+
+# Doku und Repo-Metadaten
+/CLAUDE.md
+/HandOff.md
+/README.md
+/.gitignore
+/.vercelignore

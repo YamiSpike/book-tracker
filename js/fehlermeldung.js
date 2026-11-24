@@ -51,12 +51,31 @@
     var eigene = 0, fremde = 0;
     for (var i = 0; i < bilder.length; i++) {
       var f = bilder[i].filename || '';
+      // Das gebündelte SDK liegt auf eigenem Ursprung und umhüllt Rückrufe fremder Skripte: sein Wrapper-Frame
+      // würde einen Fremdfehler sonst zum „eigenen“ machen. Er zählt weder als eigen noch als fremd.
+      if (/\/sentry-sdk\.js(\?|$)/.test(f)) continue;
       if (fremd.test(f)) fremde++;
-      else if (f && f !== '<anonymous>') eigene++;
+      // Browser-interne Rahmen („native“, Safari: „[native code]“) sind weder eigener noch fremder Code
+      else if (f && f !== '<anonymous>' && f !== 'native' && f !== '[native code]') eigene++;
     }
     // Nur verwerfen, wenn der ganze Stapel aus Fremdskripten besteht. Läuft ein Fehler über unseren Code,
     // wird er gemeldet — das könnte unser Aufruf sein.
     return !(fremde > 0 && eigene === 0);
+  }
+
+  // Seitenwechsel-Spur (Breadcrumbs from/to): das gebündelte SDK kürzt nur request.url, die Spur trägt Suchteile.
+  function ohneSuchteil(u) {
+    return typeof u === 'string' ? u.replace(/\?[^#]*/g, '') : u;
+  }
+
+  function bereinigen(event) {
+    (event.breadcrumbs || []).forEach(function (b) {
+      if (b && b.data) { b.data.from = ohneSuchteil(b.data.from); b.data.to = ohneSuchteil(b.data.to); }
+    });
+    // Das Bündel entfernt den Nutzer, Sentry leitet die Besucher-IP dann aber aus der Verbindung ab.
+    // Ein ausdrückliches null verhindert das.
+    event.user = { ip_address: null };
+    return event;
   }
 
   var kopie = version();
@@ -69,7 +88,7 @@
       release: kopie,
       environment: 'produktion',
       beforeSend: function (event) {
-        try { return istMeldenswert(event) ? event : null; } catch (e) { return event; }
+        try { return istMeldenswert(event) ? bereinigen(event) : null; } catch (e) { return event; }
       }
     });
   } catch (e) { /* Zierde: die App läuft auch ohne */ }

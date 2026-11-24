@@ -14,6 +14,11 @@
   // { v, titel, punkte: [ [Icon, Überschrift, Erklärung], … ] }
   // v muss exakt dem Präfix von APP_VERSION entsprechen (z. B. "v39").
   var CHANGELOG = [
+    { v: "v3.13", titel: "Aufgeräumt im Hintergrund", punkte: [
+      ["🔒", "Fehlermeldung noch sparsamer", "Die stille Fehlermeldung schneidet jetzt auch aus der Seitenwechsel-Spur alles hinter dem Fragezeichen ab und meldet bei Safari keine Fehler mehr, die gar nicht von der App stammen."],
+      ["🫧", "Blasen räumen sich zuverlässig auf", "Wird die Seite mitten in einer Blasen-Animation ausgeblendet, bleiben keine Blasen mehr stehen."],
+      ["📶", "Ohne Netz kein Fehlalarm beim Update-Check", "Scheitert die stille Prüfung auf eine neue Version, etwa im Flugmodus, bleibt das jetzt ohne Folgen."]
+    ]},
     { v: "v3.12", titel: "Glas, Licht und stille Fehlermeldung", punkte: [
       ["🫧", "Liquid-Glas mit Spotlight und Blasen", "Kopfleiste, Tab-Leiste, Fenster und Meldungen sind jetzt Milchglas im Kerzenlicht-Ton. Unter Maus oder Finger folgt ein weicher Lichtfleck, und wer ein Buch einträgt oder seinen Status ändert, sieht ein paar Blasen aufsteigen. Bei „Bewegung reduzieren“ am Gerät oder „Animationen reduzieren“ in der App bleiben die Effekte aus."],
       ["🎚️", "Schalter in den Einstellungen", "Unter Einstellungen → Darstellung zeigt „Spotlight und Blasen trotzdem zeigen“ die Effekte auch bei reduzierter Bewegung. Darunter steht, was dein Gerät meldet. Der Schalter gilt nur für dieses Gerät."],

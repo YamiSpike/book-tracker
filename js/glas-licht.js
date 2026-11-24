@@ -182,7 +182,14 @@
         // über eine Variable: bei „Animationen reduzieren" kürzt styles.css jede Dauer auf .01 ms, glas.css hebt das für den Schalter auf
         s.setProperty('--glas-dauer', (900 + Math.random() * 700).toFixed(0) + 'ms');
         s.animationDelay = (i * 70 + Math.random() * 60).toFixed(0) + 'ms';
-        b.addEventListener('animationend', function (ev) { ev.target.remove(); }, { once: true });
+        // Aufraeumen auch dann, wenn die Animation abbricht (Container ausgeblendet, Tab im Hintergrund):
+        // animationcancel + Notanker, sonst bleibt die Blase stehen und zaehlt gegen MAX_BLASEN
+        (function (blase) {
+          var weg = function () { blase.remove(); };
+          blase.addEventListener('animationend', weg, { once: true });
+          blase.addEventListener('animationcancel', weg, { once: true });
+          setTimeout(weg, 4000);
+        })(b);
         land.appendChild(b);
       }
     } catch (e) { /* Zierde */ }

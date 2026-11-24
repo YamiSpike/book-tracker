@@ -4,7 +4,7 @@
    der NUTZER über einen dezenten Banner — ein Loop ist per Konstruktion unmöglich. */
 (function () {
   'use strict';
-  var APP_VERSION = 'v3.12'; // bei jedem Release zusammen mit sw.js-CACHE + BUST (?v=) + version.json bumpen
+  var APP_VERSION = 'v3.13'; // bei jedem Release zusammen mit sw.js-CACHE + BUST (?v=) + version.json bumpen
   window.APP_VERSION = APP_VERSION;   // fuer whatsnew.js — steckt sonst nur in dieser IIFE
 
   // ?_v nach dem Update-Load wieder aus der URL entfernen: bliebe der Parameter
@@ -77,7 +77,12 @@
     });
     setTimeout(function () {
       navigator.serviceWorker.getRegistrations()
-        .then(function (regs) { regs.forEach(function (r) { try { r.update(); } catch (e) {} }); })
+        .then(function (regs) {
+          regs.forEach(function (r) {
+            // update() liefert ein Promise: ein try/catch faengt dessen Ablehnung nicht (offline, 404 auf sw.js)
+            try { var up = r.update(); if (up && up.catch) up.catch(function () {}); } catch (e) {}
+          });
+        })
         .catch(function () {});
     }, 1500);
   }
